@@ -1,0 +1,31 @@
+<% layout('admin/layout-admin') %>
+<%- include('../admin/sidebar') %>
+
+<main class="container-fluid py-4">
+  <h2 class="mb-4">Kelola Wallet User</h2>
+
+  <table class="table table-dark table-hover align-middle">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Currency</th>
+        <th>Balance</th>
+        <th>Dibuat</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% if (wallets.length > 0) { %>
+        <% wallets.forEach(w => { %>
+          <tr>
+            <td><%= w.username %></td>
+            <td><%= w.currency %></td>
+            <td><%= w.balance %></td>
+            <td><%= w.created_at %></td>
+          </tr>
+        <% }) %>
+      <% } else { %>
+        <tr><td colspan="4" class="text-center">Belum ada wallet</td></tr>
+      <% } %>
+    </tbody>
+  </table>
+</main>

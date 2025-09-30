@@ -1,0 +1,152 @@
+<%- include('partials/header') %>
+
+<style>
+  .panel {
+    background: rgba(30,41,59,0.75);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.4);
+    height: 100%;
+  }
+  .panel-left {
+    background: linear-gradient(135deg,#2563eb,#7c3aed);
+    color: #fff;
+  }
+  .step-icon {
+    margin-right: 8px;
+    color: #38bdf8;
+  }
+</style>
+
+<main class="container-fluid py-4 px-lg-5">
+  <div class="row gy-4">
+
+    <div class="col-lg-3 col-md-6">
+      <div class="panel panel-left text-center d-flex flex-column justify-content-between h-100">
+        <div>
+          <h5 class="fw-bold mb-3"><i class="bi bi-hand-thumbs-up-fill me-2"></i> Selamat Datang</h5>
+          <p class="mb-1"><i class="bi bi-person-circle me-1"></i> <%= user?.username %></p>
+          <hr>
+          <p class="fw-bold mb-1"><i class="bi bi-coin me-1 text-warning"></i> Total Poin</p>
+          <div class="fs-3 fw-bold text-warning"><%= user?.points || 0 %></div>
+        </div>
+        <div>
+          <a href="#" class="btn btn-warning w-100 mb-2" data-bs-toggle="modal" data-bs-target="#claimCodeModal">
+            <i class="bi bi-ticket-perforated me-1"></i> Claim Code
+          </a>
+
+          <% if (user.google_id) { %>
+            <div class="alert alert-success mt-2 mb-3" role="alert">
+              <i class="bi bi-check-circle-fill me-1"></i> Akun Google Tertaut
+            </div>
+          <% } else { %>
+            <a href="/auth/google/link" class="btn btn-light w-100 mb-3">
+              <i class="bi bi-google me-1"></i> Tautkan Akun Google
+            </a>
+          <% } %>
+          </div>
+      </div>
+    </div>
+    <div class="col-lg-9 col-md-12">
+      <div class="panel h-100">
+        <h5 class="fw-bold mb-3"><i class="bi bi-stars me-2"></i> Cara Mendapatkan Poin</h5>
+        
+        <div class="mb-4">
+          <h6 class="fw-bold text-info">Langkah Pertama</h6>
+          <ul class="list-unstyled mb-0">
+            <li class="mb-2"><i class="bi bi-google step-icon"></i> Hubungkan akun Google untuk mulai terhubung dengan sistem.</li>
+            <li class="mb-2"><i class="bi bi-youtube step-icon"></i> Subscribe channel YouTube resmi kami untuk mendukung komunitas.</li>
+            <li><i class="bi bi-chat-dots step-icon"></i> Ikut serta di komentar saat live streaming, poin akan bertambah otomatis setiap beberapa menit <small class="text-muted">(S&K berlaku)</small>.</li>
+          </ul>
+        </div>
+
+        <div>
+          <h6 class="fw-bold text-info">Langkah Kedua</h6>
+          <ul class="list-unstyled mb-0">
+            <li class="mb-2"><i class="bi bi-list-check step-icon"></i> Selesaikan misi atau tugas khusus yang tersedia.</li>
+            <li><i class="bi bi-ticket-perforated step-icon"></i> Klaim kode kupon yang dibagikan saat live streaming untuk bonus poin.</li>
+          </ul>
+        </div>
+
+        <div class="mt-4 d-flex flex-wrap gap-2">
+          <a href="https://youtube.com" target="_blank" class="btn btn-danger flex-fill">
+            <i class="bi bi-youtube me-1"></i> Subscribe
+          </a>
+          <a href="https://t.me" target="_blank" class="btn btn-info flex-fill">
+            <i class="bi bi-telegram me-1"></i> Telegram
+          </a>
+          <a href="https://twitter.com" target="_blank" class="btn btn-dark flex-fill">
+            <i class="bi bi-twitter-x me-1"></i> Twitter
+          </a>
+        </div>
+
+      </div>
+    </div>
+    </div>
+</main>
+
+
+<div class="modal fade" id="claimCodeModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content bg-dark text-white">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="bi bi-ticket-perforated me-1"></i> Masukkan Kode</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <form id="claimCodeForm">
+          <div class="mb-3">
+            <input type="text" class="form-control" id="claimCodeInput" placeholder="Masukkan kode kupon" required>
+          </div>
+          <button type="submit" class="btn btn-warning w-100">Claim</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index:9999">
+  <div id="toastClaim" class="toast align-items-center text-white border-0" role="alert">
+    <div class="d-flex">
+      <div class="toast-body" id="toastClaimMsg"></div>
+      <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById("claimCodeForm").addEventListener("submit", async function(e){
+    e.preventDefault();
+    const code = document.getElementById("claimCodeInput").value.trim();
+    if(!code) return;
+
+    const res = await fetch("/claim-code", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ code })
+    });
+
+    // Coba parse JSON, tangani jika gagal
+    let data;
+    try {
+      data = await res.json();
+    } catch(err) {
+      data = { success: false, message: 'Terjadi kesalahan respons dari server.' };
+    }
+
+    const toastEl = document.getElementById("toastClaim");
+    const toastMsg = document.getElementById("toastClaimMsg");
+    toastEl.className = "toast align-items-center text-white border-0 bg-" + (data.success ? "success" : "danger");
+    toastMsg.textContent = data.message;
+    new bootstrap.Toast(toastEl).show();
+
+    if(data.success) {
+      document.getElementById("claimCodeInput").value = "";
+      bootstrap.Modal.getInstance(document.getElementById("claimCodeModal")).hide();
+      // Tambahkan sedikit delay lalu reload untuk update poin
+      setTimeout(() => location.reload(), 1500);
+    }
+  });
+</script>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,72 @@
+
+<main class="admin-main p-4">
+  <div class="container-fluid">
+    <h1 class="mb-4 text-white">Admin Dashboard</h1>
+
+    <!-- Statistik singkat -->
+    <div class="row g-4">
+      <div class="col-md-3">
+        <div class="card bg-dark text-white shadow-sm p-3 rounded-3">
+          <h6 class="mb-1">Total User</h6>
+          <h3 class="fw-bold"><%= stats && stats.users ? stats.users : 0 %></h3>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card bg-dark text-white shadow-sm p-3 rounded-3">
+          <h6 class="mb-1">Total Tugas</h6>
+          <h3 class="fw-bold"><%= stats && stats.tasks ? stats.tasks : 0 %></h3>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card bg-dark text-white shadow-sm p-3 rounded-3">
+          <h6 class="mb-1">Total Raffles</h6>
+          <h3 class="fw-bold"><%= stats && stats.raffles ? stats.raffles : 0 %></h3>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card bg-dark text-white shadow-sm p-3 rounded-3">
+          <h6 class="mb-1">Total Livestream</h6>
+          <h3 class="fw-bold"><%= stats && stats.livestreams ? stats.livestreams : 0 %></h3>
+        </div>
+      </div>
+    </div>
+
+    <hr class="border-secondary my-4">
+
+    <!-- Quick Navigation -->
+    <div class="row g-4">
+      <div class="col-md-4">
+        <a href="/admin/tasks" class="card bg-secondary text-white shadow-sm p-4 rounded-3 text-decoration-none d-block">
+          <h5><i class="bi bi-list-task me-2"></i> Kelola Tugas</h5>
+          <p class="mb-0 small text-light">Tambah, edit, atau hapus tugas user.</p>
+        </a>
+      </div>
+      <div class="col-md-4">
+        <a href="/admin/raffles" class="card bg-secondary text-white shadow-sm p-4 rounded-3 text-decoration-none d-block">
+          <h5><i class="bi bi-gift me-2"></i> Kelola Raffles</h5>
+          <p class="mb-0 small text-light">Buat dan undi raffle untuk user.</p>
+        </a>
+      </div>
+      <div class="col-md-4">
+        <a href="/admin/livestream" class="card bg-secondary text-white shadow-sm p-4 rounded-3 text-decoration-none d-block">
+          <h5><i class="bi bi-broadcast me-2"></i> Kelola Livestream</h5>
+          <p class="mb-0 small text-light">Atur jadwal dan konten livestream.</p>
+        </a>
+      </div>
+      <div class="col-md-4">
+        <a href="/admin/claim-code" class="card bg-secondary text-white shadow-sm p-4 rounded-3 text-decoration-none d-block">
+          <h5><i class="bi bi-upc-scan me-2"></i> Kelola Claim Code</h5>
+          <p class="mb-0 small text-light">Generate atau verifikasi kode klaim.</p>
+        </a>
+      </div>
+      <div class="col-md-4">
+        <a href="/admin/wallet" class="card bg-secondary text-white shadow-sm p-4 rounded-3 text-decoration-none d-block">
+          <h5><i class="bi bi-wallet2 me-2"></i> Kelola Wallet</h5>
+          <p class="mb-0 small text-light">Pantau dan atur saldo wallet user.</p>
+        </a>
+      </div>
+    </div>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

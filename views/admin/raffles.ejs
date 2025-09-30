@@ -1,0 +1,95 @@
+<%- include('../partials/header-admin') %>
+
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar -->
+    <div class="col-md-3 col-lg-2 bg-navy text-white vh-100 p-3">
+      <%- include('sidebar') %>
+    </div>
+
+    <!-- Main Content -->
+    <div class="col-md-9 col-lg-10 p-4">
+      <h2 class="mb-4">Kelola Raffles</h2>
+
+      <!-- Form Tambah Raffle -->
+      <div class="card mb-4 shadow-sm">
+        <div class="card-body">
+          <form action="/admin/raffles/new" method="POST">
+            <div class="mb-3">
+              <label class="form-label">Judul</label>
+              <input type="text" name="title" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Reward</label>
+              <input type="text" name="reward" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Tanggal Undian</label>
+              <input type="date" name="draw_date" class="form-control" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Status</label>
+              <select name="status" class="form-select">
+                <option value="active">Active</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary">Tambah Raffle</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Daftar Raffles -->
+      <div class="card shadow-sm">
+        <div class="card-body">
+          <h5 class="mb-3">Daftar Raffles</h5>
+          <table class="table table-dark table-hover align-middle">
+            <thead>
+              <tr>
+                <th>Judul</th>
+                <th>Reward</th>
+                <th>Draw Date</th>
+                <th>Status</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (raffles.length > 0) { %>
+                <% raffles.forEach(r => { %>
+                  <tr>
+                    <td><%= r.title %></td>
+                    <td><%= r.reward %></td>
+                    <td><%= r.draw_date ? r.draw_date.toISOString().split('T')[0] : '-' %></td>
+                    <td>
+                      <span class="badge bg-<%= r.status === 'active' ? 'success' : 'secondary' %>">
+                        <%= r.status %>
+                      </span>
+                    </td>
+                    <td>
+                      <!-- Edit -->
+                      <form action="/admin/raffles/<%= r.id %>/edit" method="POST" class="d-inline">
+                        <input type="hidden" name="title" value="<%= r.title %>">
+                        <input type="hidden" name="reward" value="<%= r.reward %>">
+                        <input type="hidden" name="draw_date" value="<%= r.draw_date ? r.draw_date.toISOString().split('T')[0] : '' %>">
+                        <input type="hidden" name="status" value="<%= r.status %>">
+                        <button type="submit" class="btn btn-sm btn-warning">Edit</button>
+                      </form>
+                      <!-- Hapus -->
+                      <form action="/admin/raffles/<%= r.id %>/delete" method="POST" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-danger">Hapus</button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }) %>
+              <% } else { %>
+                <tr>
+                  <td colspan="5" class="text-center">Belum ada raffle</td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

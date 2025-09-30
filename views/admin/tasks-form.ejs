@@ -1,0 +1,45 @@
+<%- include('../partials/header-admin') %>
+
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar -->
+    <div class="col-md-3 col-lg-2 bg-navy text-white vh-100 p-3">
+      <%- include('sidebar') %>
+    </div>
+
+    <!-- Main Content -->
+    <div class="col-md-9 col-lg-10 p-4">
+      <h2><%= task ? "Edit Tugas" : "Tambah Tugas" %></h2>
+
+      <div class="card shadow-sm border-0 mt-4">
+        <div class="card-body">
+          <form method="POST" action="<%= task ? '/admin/tasks/' + task.id + '/edit' : '/admin/tasks/new' %>">
+            <div class="mb-3">
+              <label class="form-label">Judul</label>
+              <input type="text" name="title" class="form-control" value="<%= task ? task.title : '' %>" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Deskripsi</label>
+              <textarea name="description" class="form-control" rows="3"><%= task ? task.description : '' %></textarea>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Reward (Poin)</label>
+              <input type="number" name="reward" class="form-control" value="<%= task ? task.reward : 0 %>" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Status</label>
+              <select name="status" class="form-select">
+                <option value="active" <%= task && task.status === 'active' ? 'selected' : '' %>>Active</option>
+                <option value="inactive" <%= task && task.status === 'inactive' ? 'selected' : '' %>>Inactive</option>
+              </select>
+            </div>
+            <button type="submit" class="btn btn-success">
+              <i class="bi bi-save me-1"></i> Simpan
+            </button>
+            <a href="/admin/tasks" class="btn btn-secondary ms-2">Batal</a>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

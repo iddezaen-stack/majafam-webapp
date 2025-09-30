@@ -1,0 +1,845 @@
+require('dotenv').config();
+const express = require('express');
+const session = require('express-session');
+const flash = require('connect-flash');
+const passport = require('passport');
+const LocalStrategy = require('passport-local').Strategy;
+const { Pool } = require('pg');
+const { google } = require('googleapis');
+const axios = require('axios');
+const bcrypt = require('bcrypt');
+
+const app = express();
+
+const pool = new Pool({
+  host: "localhost",
+  port: 5432,
+  user: "postgres",
+  password: process.env.DB_PASSWORD,  // pastikan di .env ada DB_PASSWORD=xxx
+  database: "majafam_web",
+});
+
+// --- App config
+app.set('view engine', 'ejs');
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(express.static('public'));
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'keyboard-cat',
+  resave: false,
+  saveUninitialized: false
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+app.use(flash());
+
+// --- flash + common locals (paste ini setelah app.use(flash()); ) ---
+app.use((req, res, next) => {
+  // ambil flash messages (passport biasanya menaruh error di 'error')
+  res.locals.success_msg = req.flash('success_msg') || [];
+  res.locals.error_msg   = req.flash('error_msg')   || [];
+  res.locals.error       = req.flash('error')       || []; // passport gagal login biasanya pakai 'error'
+  // buat user & toast tersedia di semua view
+  res.locals.user  = req.user || null;
+  res.locals.toast = req.session?.toast || null;
+  // default title supaya <%= title %> tidak undefined
+  if (typeof res.locals.title === 'undefined' || res.locals.title === null) {
+    res.locals.title = '';
+  }
+  next();
+});
+
+
+// make toast available to all views (set req.session.toast to show)
+app.use((req, res, next) => {
+  res.locals.toast = req.session.toast;
+  delete req.session.toast;
+  next();
+});
+
+// --- Passport local strategy (adjust to your users table)
+passport.use(new LocalStrategy(
+  { usernameField: 'email', passwordField: 'password' },
+  async (email, password, done) => {
+    try {
+      const r = await pool.query('SELECT * FROM users WHERE email=$1', [email]);
+      if (r.rows.length === 0) return done(null, false, { message: 'Email tidak ditemukan' });
+      const user = r.rows[0];
+      const ok = await bcrypt.compare(password, user.password_hash);
+      if (!ok) return done(null, false, { message: 'Password salah' });
+      return done(null, user);
+    } catch (err) {
+      return done(err);
+    }
+  }
+));
+
+passport.serializeUser((user, done) => { done(null, user.id); });
+passport.deserializeUser(async (id, done) => {
+  try {
+    const r = await pool.query('SELECT id, username, email, role, points, youtube_channel_id FROM users WHERE id=$1', [id]);
+    done(null, r.rows[0]);
+  } catch (err) {
+    done(err);
+  }
+});
+
+// --- Auth middlewares
+function ensureAuthenticated(req, res, next) {
+  if (req.isAuthenticated()) return next();
+  res.redirect('/login');
+}
+
+function isAdmin(req, res, next) {
+  if (req.isAuthenticated() && req.user && req.user.role === 'admin') return next();
+  // if AJAX/JSON requests prefer 403; otherwise redirect
+  if (req.xhr) return res.status(403).json({ error: 'Access denied' });
+  res.redirect('/login');
+}
+
+// --- Basic routes: login/register/logout
+app.get('/login', (req, res) => {
+  res.render('login', { title: "Login", message: req.flash('error') });
+});
+app.post('/login', passport.authenticate('local', {
+  successRedirect: '/dashboard',
+  failureRedirect: '/login',
+  failureFlash: true
+}));
+app.get('/register', (req, res) => res.render('register', {title: "Resgister" }));
+app.post('/register', async (req, res) => {
+  const { username, email, password } = req.body;
+  const hash = await bcrypt.hash(password, 10);
+  await pool.query('INSERT INTO users (username, email, password_hash, role, points) VALUES ($1,$2,$3,$4,$5)', [username, email, hash, 'user', 0]);
+  res.redirect('/login');
+});
+app.get('/logout', (req, res) => {
+  req.logout(() => { res.redirect('/login'); });
+});
+
+// --- Dashboard & pages
+app.get('/', (req, res) => res.redirect('/dashboard'));
+app.get('/dashboard', ensureAuthenticated, async (req, res) => {
+  // customize data for dashboard: user, points, tasks (simple)
+  try {
+    const tasksRes = await pool.query('SELECT * FROM tasks WHERE active = true ORDER BY created_at DESC');
+    res.render('dashboard', { title: "Dashboard", user: req.user, tasks: tasksRes.rows });
+  } catch (err) {
+    console.error(err);
+    res.render('dashboard', { user: req.user, tasks: [] });
+  }
+});
+
+// Tukar point page
+app.get('/tukar-point', ensureAuthenticated, async (req, res) => {
+  try {
+    // sample history fetch - adjust table name if different
+    const history = await pool.query('SELECT reward, points, status, created_at FROM point_history WHERE user_id=$1 ORDER BY created_at DESC', [req.user.id]);
+    res.render('tukar-point', { title: "Tukar Point", user: req.user, history: history.rows });
+
+    await pool.query(
+  "INSERT INTO history (user_id, type, description, points) VALUES ($1,$2,$3,$4)",
+  [userId, "raffle", "Menukar poin dengan tiket raffle", -cost]
+);
+
+  } catch (err) {
+    console.error(err);
+    res.render('tukar-point', { user: req.user, history: [] });
+  }
+});
+
+// Raffles page (user)
+app.get('/raffles', ensureAuthenticated, async (req, res) => {
+  try {
+    const raffleRes = await pool.query('SELECT * FROM raffles WHERE status = $1 ORDER BY created_at DESC LIMIT 1', ['active']);
+    const raffle = raffleRes.rows[0] || null;
+
+    let myTickets = [];
+    if (raffle) {
+      const t = await pool.query('SELECT id, ticket_number, created_at FROM raffle_entries WHERE raffle_id=$1 AND user_id=$2 ORDER BY ticket_number ASC', [raffle.id, req.user.id]);
+      myTickets = t.rows;
+    }
+
+    const winnersRes = await pool.query(
+      `SELECT r.title AS raffle_title, u.username, r.reward, w.created_at AS draw_date
+       FROM raffle_winners w
+       JOIN raffles r ON w.raffle_id = r.id
+       JOIN users u ON w.user_id = u.id
+       ORDER BY w.created_at DESC LIMIT 10`
+    );
+    const winners = winnersRes.rows || [];
+
+    // send drawDateISO to avoid EJS new Date in template
+    const drawDateISO = raffle && raffle.draw_date ? raffle.draw_date.toISOString() : null;
+
+    res.render('raffles', { title: "Raffles", user: req.user, raffle, myTickets, winners, drawDateISO });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Server error');
+  }
+});
+
+// User membeli tiket raffle
+app.post("/raffles/:id/join", ensureAuthenticated, async (req, res) => {
+  const raffleId = req.params.id;
+  const userId = req.user.id;
+  const ticketCost = 10; // misalnya 10 poin per tiket
+
+  try {
+    // cek apakah user punya poin cukup
+    const userRes = await pool.query("SELECT points FROM users WHERE id=$1", [userId]);
+    if (userRes.rows[0].points < ticketCost) {
+      req.flash("error_msg", "Poin kamu tidak cukup untuk membeli tiket.");
+      return res.redirect("/raffles");
+    }
+
+    // kurangi poin user
+    await pool.query("UPDATE users SET points = points - $1 WHERE id=$2", [ticketCost, userId]);
+
+    // insert tiket
+    await pool.query(
+      "INSERT INTO raffle_tickets (user_id, raffle_id) VALUES ($1,$2)",
+      [userId, raffleId]
+    );
+
+    // simpan riwayat
+    await pool.query(
+      "INSERT INTO history (user_id, type, description, points) VALUES ($1,$2,$3,$4)",
+      [userId, "raffle", `Membeli tiket raffle #${raffleId}`, -ticketCost]
+    );
+
+    req.flash("success_msg", "Berhasil membeli tiket raffle!");
+    res.redirect("/raffles");
+  } catch (err) {
+    console.error("Error join raffle:", err);
+    req.flash("error_msg", "Terjadi kesalahan.");
+    res.redirect("/raffles");
+  }
+});
+
+// ====================== HALAMAN RIWAYAT ======================
+// ====================== RIWAYAT USER ======================
+app.get("/riwayat", ensureAuthenticated, async (req, res) => {
+  try {
+    const history = await pool.query(
+      "SELECT * FROM history WHERE user_id=$1 ORDER BY created_at DESC",
+      [req.user.id]
+    );
+
+    res.render("riwayat", {
+      title: "Riwayat Aktivitas",
+      user: req.user,
+      history: history.rows,
+    });
+  } catch (err) {
+    console.error("Error ambil riwayat:", err);
+    req.flash("error_msg", "Gagal memuat riwayat.");
+    res.redirect("/dashboard");
+  }
+});
+
+// ====================== TASKS PAGE ======================
+app.get("/tasks", ensureAuthenticated, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const tasks = await pool.query(
+      `SELECT t.*, 
+              ut.status AS user_status
+       FROM tasks t
+       LEFT JOIN user_tasks ut 
+         ON t.id = ut.task_id AND ut.user_id = $1
+       ORDER BY t.created_at DESC`,
+      [userId]
+    );
+
+    res.render("tasks", {
+      title: "Tasks",
+      user: req.user,
+      tasks: tasks.rows,
+      success_msg: req.flash("success_msg"),
+      error_msg: req.flash("error_msg")
+    });
+  } catch (err) {
+    console.error("Error fetching tasks:", err);
+    req.flash("error_msg", "Gagal memuat tugas.");
+    res.redirect("/dashboard");
+  }
+});
+
+// ====================== CLAIM TASK ======================
+app.post("/tasks/:id/claim", ensureAuthenticated, async (req, res) => {
+  const taskId = req.params.id;
+  const userId = req.user.id;
+
+  try {
+    const check = await pool.query(
+      "SELECT * FROM user_tasks WHERE user_id=$1 AND task_id=$2",
+      [userId, taskId]
+    );
+
+    if (check.rows.length > 0) {
+      req.flash("error_msg", "Kamu sudah klaim tugas ini.");
+      return res.redirect("/tasks");
+    }
+
+    // insert ke user_tasks
+    await pool.query(
+      "INSERT INTO user_tasks (user_id, task_id, status) VALUES ($1,$2,'completed')",
+      [userId, taskId]
+    );
+
+    await pool.query(
+      "INSERT INTO history (user_id, type, description, points) VALUES ($1,$2,$3,$4)",
+      [userId, "task", `Klaim tugas ID ${taskId}`, task.reward]  // pastikan task.reward ada
+    );
+
+
+    // tambahkan poin ke user sesuai reward task
+    const reward = await pool.query("SELECT reward FROM tasks WHERE id=$1", [taskId]);
+    if (reward.rows.length > 0) {
+      await pool.query("UPDATE users SET points = points + $1 WHERE id=$2", [
+        reward.rows[0].reward,
+        userId,
+      ]);
+    }
+
+
+    req.flash("success_msg", "Tugas berhasil diklaim dan poin ditambahkan!");
+    res.redirect("/tasks");
+  } catch (err) {
+    console.error("Error claiming task:", err);
+    req.flash("error_msg", "Terjadi kesalahan saat klaim tugas.");
+    res.redirect("/tasks");
+  }
+});
+
+// ====================== ROUTE: TUGAS ======================
+
+// Halaman daftar tugas
+app.get("/tasks", ensureAuthenticated, async (req, res) => {
+  try {
+    const tasks = await pool.query("SELECT * FROM tasks ORDER BY created_at DESC");
+
+    const userTasks = await pool.query(
+      "SELECT task_id FROM user_tasks WHERE user_id=$1",
+      [req.user.id]
+    );
+
+    res.render("tasks", {
+      title: "Daftar Tugas",
+      user: req.user,
+      tasks: tasks.rows,
+      userTasks: userTasks.rows,
+    });
+  } catch (err) {
+    console.error("Error get tasks:", err);
+    res.status(500).send("Server Error");
+  }
+});
+
+// Klaim tugas
+app.post("/tasks/:id/claim", ensureAuthenticated, async (req, res) => {
+  const taskId = req.params.id;
+  const userId = req.user.id;
+
+  try {
+    // cek sudah klaim belum
+    const exists = await pool.query(
+      "SELECT 1 FROM user_tasks WHERE user_id=$1 AND task_id=$2",
+      [userId, taskId]
+    );
+
+    if (exists.rows.length > 0) {
+      req.flash("error_msg", "Tugas sudah diklaim.");
+      return res.redirect("/tasks");
+    }
+
+    // ambil reward dari task
+    const task = await pool.query("SELECT reward FROM tasks WHERE id=$1", [taskId]);
+    if (task.rows.length === 0) {
+      req.flash("error_msg", "Tugas tidak ditemukan.");
+      return res.redirect("/tasks");
+    }
+
+    const reward = task.rows[0].reward;
+
+    // insert user_tasks
+    await pool.query(
+      "INSERT INTO user_tasks (user_id, task_id) VALUES ($1,$2)",
+      [userId, taskId]
+    );
+
+    // tambahkan poin ke user
+    await pool.query("UPDATE users SET points = points + $1 WHERE id=$2", [
+      reward,
+      userId,
+    ]);
+
+    req.flash("success_msg", `Tugas berhasil diklaim! Kamu dapat ${reward} poin.`);
+    res.redirect("/tasks");
+  } catch (err) {
+    console.error("Error claim task:", err);
+    req.flash("error_msg", "Gagal klaim tugas.");
+    res.redirect("/tasks");
+  }
+});
+
+app.post("/tasks/:id/claim", ensureAuthenticated, async (req, res) => {
+  const taskId = req.params.id;
+  const userId = req.user.id;
+
+  try {
+    // cek apakah user sudah pernah klaim
+    const check = await pool.query(
+      "SELECT * FROM user_tasks WHERE user_id=$1 AND task_id=$2",
+      [userId, taskId]
+    );
+
+    if (check.rows.length > 0) {
+      req.flash("error_msg", "Kamu sudah klaim tugas ini.");
+      return res.redirect("/tasks");
+    }
+
+    // ambil reward dari tabel tasks
+    const taskRes = await pool.query("SELECT * FROM tasks WHERE id=$1", [taskId]);
+    if (taskRes.rows.length === 0) {
+      req.flash("error_msg", "Tugas tidak ditemukan.");
+      return res.redirect("/tasks");
+    }
+
+    const task = taskRes.rows[0];
+    const reward = task.reward || 0;
+
+    // insert ke user_tasks
+    await pool.query(
+      "INSERT INTO user_tasks (user_id, task_id, status) VALUES ($1,$2,'completed')",
+      [userId, taskId]
+    );
+
+    // update poin user
+    await pool.query("UPDATE users SET points = points + $1 WHERE id=$2", [reward, userId]);
+
+    // catat ke riwayat
+    await pool.query(
+      "INSERT INTO history (user_id, type, points, description) VALUES ($1,$2,$3,$4)",
+      [userId, "task", reward, `Klaim tugas: ${task.title}`]
+    );
+
+    req.flash("success_msg", `Berhasil klaim tugas dan dapat ${reward} poin!`);
+    res.redirect("/tasks");
+  } catch (err) {
+    console.error("Error klaim tugas:", err);
+    req.flash("error_msg", "Terjadi kesalahan.");
+    res.redirect("/tasks");
+  }
+});
+
+
+// --- Admin routes (use isAdmin)
+app.get('/admin', isAdmin, async (req, res) => {
+  res.render('admin/index', { title: "Admin Dashboard", user: req.user });
+});
+
+// Claim codes
+app.get('/admin/claim-codes', isAdmin, async (req, res) => {
+  const codes = (await pool.query('SELECT * FROM claim_codes ORDER BY created_at DESC')).rows;
+  res.render('admin/claim-codes', { title: "Claim Code", user: req.user, codes });
+});
+app.post('/admin/claim-codes', isAdmin, async (req, res) => {
+  const { code, reward, expired_at } = req.body;
+  await pool.query('INSERT INTO claim_codes (code, reward, expired_at, status) VALUES ($1,$2,$3,$4)', [code, reward, expired_at || null, 'active']);
+  req.session.toast = { type: 'success', message: 'Claim code dibuat.' };
+  res.redirect('/admin/claim-codes');
+});
+app.post('/admin/claim-codes/:id/delete', isAdmin, async (req, res) => {
+  await pool.query('DELETE FROM claim_codes WHERE id=$1', [req.params.id]);
+  req.session.toast = { type: 'success', message: 'Claim code dihapus.' };
+  res.redirect('/admin/claim-codes');
+});
+
+// Admin raffles management
+app.get('/admin/raffles', isAdmin, async (req, res) => {
+  const raffles = (await pool.query('SELECT * FROM raffles ORDER BY created_at DESC')).rows;
+  res.render('admin/raffles', { user: req.user, raffles });
+});
+app.post('/admin/raffles', isAdmin, async (req, res) => {
+  const { title, reward, draw_date, status } = req.body;
+  await pool.query('INSERT INTO raffles (title, reward, draw_date, status) VALUES ($1,$2,$3,$4)', [title, reward, draw_date, status || 'active']);
+  req.session.toast = { type: 'success', message: 'Raffle dibuat.' };
+  res.redirect('/admin/raffles');
+});
+app.post('/admin/raffles/:id/delete', isAdmin, async (req, res) => {
+  await pool.query('DELETE FROM raffles WHERE id=$1', [req.params.id]);
+  req.session.toast = { type: 'success', message: 'Raffle dihapus.' };
+  res.redirect('/admin/raffles');
+});
+
+// Tasks admin
+// ---------------- ADMIN TASKS ----------------
+
+// lihat semua tasks
+app.get("/admin/tasks", requireAdmin, async (req, res) => {
+  const tasks = await pool.query("SELECT * FROM tasks ORDER BY created_at DESC");
+  res.render("admin/tasks", { title: "Tasks Management", tasks: tasks.rows });
+});
+
+// buat task baru
+app.post("/admin/tasks", requireAdmin, async (req, res) => {
+  const { title, description, reward } = req.body;
+  await pool.query(
+    "INSERT INTO tasks (title, description, reward) VALUES ($1, $2, $3)",
+    [title, description, reward]
+  );
+  res.redirect("/admin/tasks");
+});
+
+// hapus task
+app.post("/admin/tasks/:id/delete", requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  await pool.query("DELETE FROM tasks WHERE id=$1", [id]);
+  res.redirect("/admin/tasks");
+});
+
+
+// Wallet admin page (placeholder)
+app.get('/admin/wallet', isAdmin, async (req, res) => {
+  // fetch wallet settings if needed
+  res.render('admin/wallet', { title: "Wallet Manager", user: req.user });
+});
+
+// Withdraws admin
+app.get('/admin/withdraws', isAdmin, async (req, res) => {
+  const withdraws = (await pool.query('SELECT * FROM withdraws ORDER BY created_at DESC')).rows;
+  res.render('admin/withdraws', { title: "Withdraws Manager", user: req.user, withdraws });
+});
+app.post('/admin/withdraws/:id/approve', isAdmin, async (req, res) => {
+  await pool.query('UPDATE withdraws SET status=$1 WHERE id=$2', ['approved', req.params.id]);
+  req.session.toast = { type: 'success', message: 'Withdraw disetujui.' };
+  res.redirect('/admin/withdraws');
+});
+
+// ================== ADMIN TASKS ==================
+
+// Lihat semua tasks
+app.get("/admin/tasks", requireAdmin, async (req, res) => {
+  const tasks = await pool.query("SELECT * FROM tasks ORDER BY created_at DESC");
+  res.render("admin/tasks", { title: "Tasks Management", tasks: tasks.rows, user: req.user });
+});
+
+// Buat task baru
+app.post("/admin/tasks", requireAdmin, async (req, res) => {
+  const { title, description, reward } = req.body;
+  await pool.query(
+    "INSERT INTO tasks (title, description, reward, status) VALUES ($1,$2,$3,'active')",
+    [title, description, reward]
+  );
+  req.flash("success_msg", "Tugas baru berhasil ditambahkan");
+  res.redirect("/admin/tasks");
+});
+
+// Edit task
+app.post("/admin/tasks/:id/edit", requireAdmin, async (req, res) => {
+  const { title, description, reward, status } = req.body;
+  await pool.query(
+    "UPDATE tasks SET title=$1, description=$2, reward=$3, status=$4 WHERE id=$5",
+    [title, description, reward, status, req.params.id]
+  );
+  req.flash("success_msg", "Tugas berhasil diperbarui");
+  res.redirect("/admin/tasks");
+});
+
+// Hapus task
+app.post("/admin/tasks/:id/delete", requireAdmin, async (req, res) => {
+  await pool.query("DELETE FROM tasks WHERE id=$1", [req.params.id]);
+  req.flash("success_msg", "Tugas berhasil dihapus");
+  res.redirect("/admin/tasks");
+});
+
+// ====================== ADMIN LIVESTREAM ======================
+app.get("/admin/livestream", requireAdmin, async (req, res) => {
+  try {
+    // Ambil data livestream sessions dari database
+    const sessions = await pool.query(`
+      SELECT ls.id, u.username, ls.video_id, ls.first_message_at, 
+             ls.last_interaction_at, ls.intervals_awarded
+      FROM live_points ls
+      JOIN users u ON ls.user_id = u.id
+      ORDER BY ls.last_interaction_at DESC
+      LIMIT 50
+    `);
+
+    res.render("admin/livestream", {
+      title: "Livestream Management",
+      user: req.user,
+      sessions: sessions.rows,
+    });
+  } catch (err) {
+    console.error("Error loading livestream admin page:", err);
+    res.render("admin/livestream", {
+      title: "Livestream Management",
+      user: req.user,
+      sessions: [],
+    });
+  }
+});
+
+// Start polling livestream (admin action)
+app.post("/admin/livestream/start", requireAdmin, async (req, res) => {
+  const { videoId } = req.body;
+  if (!videoId) {
+    req.flash("error_msg", "Video ID tidak boleh kosong");
+    return res.redirect("/admin/livestream");
+  }
+
+  try {
+    const result = await startPollingLiveChat(videoId);
+    if (result.ok) {
+      req.flash("success_msg", `Polling dimulai untuk video ${videoId}`);
+    } else {
+      req.flash("error_msg", result.message);
+    }
+  } catch (err) {
+    console.error("Error start polling:", err);
+    req.flash("error_msg", "Gagal memulai polling");
+  }
+  res.redirect("/admin/livestream");
+});
+
+// Stop polling livestream (admin action)
+app.post("/admin/livestream/stop", requireAdmin, async (req, res) => {
+  const { videoId } = req.body;
+  try {
+    const stopped = stopPollingLiveChat(videoId);
+    if (stopped) {
+      req.flash("success_msg", `Polling dihentikan untuk video ${videoId}`);
+    } else {
+      req.flash("error_msg", `Polling tidak aktif untuk video ${videoId}`);
+    }
+  } catch (err) {
+    console.error("Error stop polling:", err);
+    req.flash("error_msg", "Gagal menghentikan polling");
+  }
+  res.redirect("/admin/livestream");
+});
+
+app.get("/admin/livestream", requireAdmin, async (req, res) => {
+  try {
+    const sessions = await pool.query(`
+      SELECT ls.id, u.username, u.youtube_channel_id, ls.first_message_at, 
+             ls.last_interaction_at, ls.intervals_awarded
+      FROM live_points ls
+      JOIN users u ON u.id = ls.user_id
+      ORDER BY ls.last_interaction_at DESC
+    `);
+
+    res.render("admin/livestream", {
+      title: "Admin Livestream",
+      user: req.user,
+      sessions: sessions.rows,
+      success_msg: req.flash("success_msg"),
+      error_msg: req.flash("error_msg"),
+    });
+  } catch (err) {
+    console.error("Error load livestream page:", err);
+    req.flash("error_msg", "Gagal memuat data livestream");
+    res.redirect("/admin/dashboard");
+  }
+});
+
+// --- Admin quick routes for polling (manual test)
+app.get('/admin/start-poll/:videoId', isAdmin, async (req, res) => {
+  try {
+    const result = await startPollingLiveChat(req.params.videoId);
+    if (result.ok) {
+      res.send(`Polling dimulai untuk videoId: ${req.params.videoId} (liveChatId: ${result.liveChatId})`);
+    } else {
+      res.send(`Gagal: ${result.message}`);
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error start poll');
+  }
+});
+app.get('/admin/stop-poll/:videoId', isAdmin, (req, res) => {
+  const stopped = stopPollingLiveChat(req.params.videoId);
+  if (stopped) res.send('Polling dihentikan');
+  else res.send('Tidak ada polling aktif');
+});
+
+// ======================================================
+// LIVE CHAT POLLING (full)
+// ======================================================
+const youtubePublic = google.youtube('v3');
+const LIVE_POLLERS = {};
+
+// Ambil liveChatId dari video
+async function getLiveChatIdFromVideo(videoId) {
+  const r = await youtubePublic.videos.list({
+    part: 'liveStreamingDetails',
+    id: videoId,
+    key: process.env.YOUTUBE_API_KEY
+  });
+  return r.data.items?.[0]?.liveStreamingDetails?.activeLiveChatId || null;
+}
+
+// Tandai pesan sudah diproses
+async function markMessageProcessed(messageId, liveChatId) {
+  await pool.query(
+    `INSERT INTO live_processed_messages (message_id, live_chat_id)
+     VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+    [messageId, liveChatId]
+  );
+}
+
+// Beri reward ke author (poin livestream)
+// Logika: chat pertama => +5 poin; setiap kelipatan 10 menit sejak first_message_at => +10 poin per interval
+async function processAuthorReward(userId, channelId, videoId) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const lpRes = await client.query(
+      'SELECT * FROM live_points WHERE user_id=$1 AND video_id=$2 FOR UPDATE',
+      [userId, videoId]
+    );
+
+    if (lpRes.rows.length === 0) {
+      await client.query(
+        `INSERT INTO live_points (user_id, video_id, youtube_channel_id, first_message_at, last_interaction_at, intervals_awarded)
+         VALUES ($1,$2,$3,NOW(),NOW(),0)`,
+        [userId, videoId, channelId]
+      );
+      await client.query('UPDATE users SET points = points + 5 WHERE id=$1', [userId]);
+      await client.query('COMMIT');
+      console.log(`User ${userId} dapat 5 poin (chat pertama video ${videoId})`);
+      return;
+    }
+
+    const lp = lpRes.rows[0];
+    const firstAt = new Date(lp.first_message_at);
+    const intervals = Math.floor((Date.now() - firstAt.getTime()) / (10 * 60 * 1000)); // setiap 10 menit
+    const already = lp.intervals_awarded || 0;
+
+    if (intervals > already) {
+      const reward = 10 * (intervals - already);
+      await client.query('UPDATE users SET points = points + $1 WHERE id=$2', [reward, userId]);
+      await client.query(
+        'UPDATE live_points SET intervals_awarded=$1, last_interaction_at=NOW() WHERE id=$2',
+        [intervals, lp.id]
+      );
+      await client.query('COMMIT');
+      console.log(`User ${userId} aktif ${intervals * 10} menit => +${reward} poin`);
+    } else {
+      await client.query('UPDATE live_points SET last_interaction_at=NOW() WHERE id=$1', [lp.id]);
+      await client.query('COMMIT');
+    }
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Reward Error:', err);
+  } finally {
+    client.release();
+  }
+}
+
+// Proses batch message dari API YouTube
+async function processMessagesBatch(items, liveChatId, videoId) {
+  for (const item of items) {
+    if (!item || !item.snippet) continue;
+    if (item.snippet.type !== 'textMessageEvent') continue;
+
+    // skip if already processed
+    const processed = await pool.query('SELECT 1 FROM live_processed_messages WHERE message_id=$1', [item.id]);
+    if (processed.rows.length > 0) continue;
+
+    const channelId = item.authorDetails?.channelId;
+    const username = item.authorDetails?.displayName;
+    const text = item.snippet?.displayMessage;
+
+    if (channelId) {
+      const userRes = await pool.query('SELECT id FROM users WHERE youtube_channel_id=$1', [channelId]);
+      if (userRes.rows.length) {
+        await processAuthorReward(userRes.rows[0].id, channelId, videoId);
+      }
+    }
+
+    // mark processed
+    await markMessageProcessed(item.id, liveChatId);
+    console.log(`[LIVE CHAT] ${username || 'unknown'}: ${text || '-'}`);
+  }
+}
+
+// Start polling chat
+async function startPollingLiveChat(videoId) {
+  if (LIVE_POLLERS[videoId]) return { ok: false, message: 'Already polling' };
+
+  const liveChatId = await getLiveChatIdFromVideo(videoId);
+  if (!liveChatId) return { ok: false, message: 'Tidak menemukan liveChatId' };
+
+  let nextPageToken = null;
+  let stopped = false;
+
+  async function loop() {
+    if (stopped) return;
+    try {
+      const r = await youtubePublic.liveChatMessages.list({
+        part: 'id,snippet,authorDetails',
+        liveChatId,
+        pageToken: nextPageToken,
+        maxResults: 200,
+        key: process.env.YOUTUBE_API_KEY
+      });
+
+      await processMessagesBatch(r.data.items || [], liveChatId, videoId);
+
+      nextPageToken = r.data.nextPageToken;
+      setTimeout(loop, r.data.pollingIntervalMillis || 5000);
+    } catch (err) {
+      console.error('Polling Error:', err);
+      setTimeout(loop, 10000);
+    }
+  }
+
+  loop();
+  LIVE_POLLERS[videoId] = { stop: () => { stopped = true; delete LIVE_POLLERS[videoId]; } };
+  return { ok: true, liveChatId };
+}
+
+// Stop polling chat
+function stopPollingLiveChat(videoId) {
+  if (LIVE_POLLERS[videoId]) {
+    LIVE_POLLERS[videoId].stop();
+    return true;
+  }
+  return false;
+}
+
+// ======================================================
+// Start server
+// ======================================================
+const PORT = process.env.PORT || 8080;
+app.listen(PORT, () => console.log(`🚀 Server berjalan di http://localhost:${PORT}`));
+
+/*
+  SQL helpers (run once in your DB if not present):
+
+CREATE TABLE IF NOT EXISTS live_processed_messages (
+  id SERIAL PRIMARY KEY,
+  message_id TEXT NOT NULL,
+  live_chat_id TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(message_id, live_chat_id)
+);
+
+CREATE TABLE IF NOT EXISTS live_points (
+  id SERIAL PRIMARY KEY,
+  user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  video_id TEXT NOT NULL,
+  youtube_channel_id TEXT NOT NULL,
+  first_message_at TIMESTAMP NOT NULL,
+  last_interaction_at TIMESTAMP NOT NULL,
+  intervals_awarded INT DEFAULT 0,
+  created_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, video_id)
+);
+*/

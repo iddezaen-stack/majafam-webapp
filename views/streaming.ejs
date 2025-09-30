@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Nonton Livestream & Dapatkan Poin!</title>
+</head>
+<body>
+    <h1><%= stream.title %></h1>
+
+    <iframe width="853" height="480" src="https://www.youtube.com/embed/<%= stream.youtube_video_id %>?autoplay=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+
+    <div id="status"></div>
+    <p>Poin Anda saat ini: <span id="user-points"><%= user.points %></span></p>
+
+    <script>
+        // Fungsi ini akan mengirim sinyal ke server setiap 60 detik
+        function reportActivity() {
+            fetch('/api/livestream/activity', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ streamId: '<%= stream.id %>' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.pointsAwarded > 0) {
+                    console.log(`Anda mendapatkan ${data.pointsAwarded} poin!`);
+                    document.getElementById('status').innerText = `Selamat! Anda baru saja mendapatkan ${data.pointsAwarded} poin.`;
+                    // Perbarui tampilan poin
+                    document.getElementById('user-points').innerText = data.newTotalPoints;
+                } else {
+                    console.log('Aktivitas dicatat, menunggu interval 10 menit...');
+                    document.getElementById('status').innerText = 'Teruslah menonton untuk mendapatkan poin berikutnya!';
+                }
+            })
+            .catch(err => console.error('Gagal melaporkan aktivitas:', err));
+        }
+
+        // Jalankan fungsi setiap 1 menit (60000 milidetik)
+        setInterval(reportActivity, 60000);
+    </script>
+</body>
+</html>

@@ -1,0 +1,30 @@
+/* Warna utama sidebar */
+.admin-sidebar {
+  background-color: #1a2a40; /* navy blue */
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+/* Link sidebar */
+.admin-sidebar .nav-link {
+  color: #cfd8dc; /* abu terang */
+  font-weight: 500;
+  margin-bottom: .5rem;
+  border-radius: .375rem;
+  transition: all 0.2s ease-in-out;
+}
+
+.admin-sidebar .nav-link:hover,
+.admin-sidebar .nav-link.active {
+  background-color: #0d6efd; /* biru bootstrap */
+  color: #fff;
+}
+
+/* Box konten utama */
+.admin-content {
+  background: #212529; /* abu gelap */
+  border-radius: .5rem;
+  padding: 2rem;
+  box-shadow: 0 0 20px rgba(0,0,0,0.3);
+  margin-top: 1rem;
+}

@@ -1,0 +1,20 @@
+<%- include('partials/header') %>
+
+<main class="container py-5">
+  <h3 class="mb-4"><%= wallet.currency %> Wallet</h3>
+
+  <div class="card-dashboard">
+    <p>Saldo: <strong><%= wallet.balance.toFixed(2) %></strong></p>
+
+    <div class="d-flex gap-2 mt-3">
+      <a href="/wallet/<%= wallet.currency.toLowerCase() %>/deposit" class="btn btn-success">
+        Deposit
+      </a>
+      <a href="/wallet/<%= wallet.currency.toLowerCase() %>/withdraw" class="btn btn-danger">
+        Withdraw
+      </a>
+    </div>
+  </div>
+</main>
+
+<%- include('partials/footer') %>

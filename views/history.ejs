@@ -1,0 +1,41 @@
+<%- include('partials/header') %>
+
+<main class="container py-5">
+
+  <!-- Judul -->
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <h2 class="fw-bold text-white">Riwayat Poin</h2>
+    <span class="badge bg-primary fs-6">Saldo Poin: <%= user.points %></span>
+  </div>
+
+  <!-- Tabel Riwayat -->
+  <% if (history.length > 0) { %>
+    <div class="table-responsive">
+      <table class="table table-dark table-hover align-middle rounded-3 overflow-hidden">
+        <thead>
+          <tr class="bg-secondary text-white">
+            <th scope="col">Tanggal</th>
+            <th scope="col" class="text-center">Poin</th>
+            <th scope="col">Aktivitas</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% history.forEach(h => { %>
+            <tr>
+              <td><%= new Date(h.created_at).toLocaleString("id-ID") %></td>
+              <td class="text-center fw-bold <%= h.points > 0 ? 'text-success' : 'text-danger' %>">
+                <%= h.points > 0 ? '+' : '' %><%= h.points %>
+              </td>
+              <td><%= h.reward %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } else { %>
+    <p class="text-muted">Belum ada riwayat penukaran.</p>
+  <% } %>
+
+</main>
+
+<%- include('partials/footer') %>

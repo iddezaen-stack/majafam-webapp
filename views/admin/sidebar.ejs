@@ -1,0 +1,53 @@
+<div class="admin-sidebar p-3">
+  <h6 class="text-white mb-3">Navigation</h6>
+  <ul class="nav flex-column">
+    <li class="nav-item">
+      <a href="/admin" class="nav-link <%= (title === 'Admin Dashboard') ? 'active' : '' %>">
+        <i class="bi bi-speedometer2 me-2"></i> Dashboard
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/admin/tasks" class="nav-link <%= (title === 'Kelola Tugas') ? 'active' : '' %>">
+        <i class="bi bi-list-task me-2"></i> Kelola Tugas
+      </a>
+    </li>
+    <ul class="nav flex-column">
+  <li class="nav-item">
+    <a class="nav-link <%= title==='Admin Dashboard' ? 'active' : '' %>" href="/admin/dashboard">
+      <i class="bi bi-speedometer2 me-2"></i> Dashboard
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link <%= title==='Kelola Tugas' ? 'active' : '' %>" href="/admin/tasks">
+      <i class="bi bi-list-task me-2"></i> Kelola Tugas
+    </a>
+  </li>
+  
+  <li class="nav-item">
+    <a class="nav-link <%= title==='Verifikasi Tugas' ? 'active' : '' %>" href="/admin/verifications">
+      <i class="bi bi-patch-check-fill me-2"></i> Verifikasi
+    </a>
+  </li>
+
+    <li class="nav-item">
+      <a href="/admin/raffles" class="nav-link <%= (title === 'Kelola Raffles') ? 'active' : '' %>">
+        <i class="bi bi-ticket-detailed me-2"></i> Kelola Raffles
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/admin/livestream" class="nav-link <%= (title === 'Kelola Livestream') ? 'active' : '' %>">
+        <i class="bi bi-broadcast me-2"></i> Livestream
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/admin/claim-code" class="nav-link <%= (title === 'Kelola Claim Code') ? 'active' : '' %>">
+        <i class="bi bi-gift me-2"></i> Claim Code
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/admin/wallet" class="nav-link <%= (title === 'Kelola Wallet') ? 'active' : '' %>">
+        <i class="bi bi-wallet2 me-2"></i> Wallet
+      </a>
+    </li>
+  </ul>
+</div>

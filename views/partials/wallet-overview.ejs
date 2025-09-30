@@ -1,0 +1,56 @@
+<div class="modal fade" id="walletOverviewModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content bg-dark text-white rounded-3">
+      <div class="modal-header border-0">
+        <h5 class="modal-title"><i class="bi bi-wallet2 me-2"></i> Wallet</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <!-- Daftar Semua Wallet -->
+        <h6 class="mb-3">Daftar Wallet</h6>
+        <div class="table-responsive">
+          <table class="table table-dark table-borderless align-middle">
+            <thead>
+              <tr>
+                <th>Currency</th>
+                <th class="text-end">Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (wallets.length > 0) { %>
+                <% wallets.forEach(w => { %>
+                  <tr>
+                    <td><%= w.currency %></td>
+                    <td class="text-end"><%= w.balance.toFixed(2) %></td>
+                  </tr>
+                <% }) %>
+              <% } else { %>
+                <tr>
+                  <td colspan="2" class="text-center">Belum ada wallet</td>
+                </tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+
+        <hr>
+
+        <!-- Wallet Aktif -->
+        <h6>Wallet Aktif</h6>
+        <div class="card shadow p-3 bg-dark text-white">
+          <h4><%= selectedWallet.currency %> Wallet</h4>
+          <p>Balance: <strong><%= selectedWallet.balance.toFixed(2) %></strong></p>
+
+          <div class="d-flex gap-2 mt-3">
+            <a href="/wallet/<%= selectedWallet.currency.toLowerCase() %>/deposit" class="btn btn-success">
+              <i class="bi bi-arrow-down-circle me-1"></i> Deposit
+            </a>
+            <a href="/wallet/<%= selectedWallet.currency.toLowerCase() %>/withdraw" class="btn btn-danger">
+              <i class="bi bi-arrow-up-circle me-1"></i> Withdraw
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

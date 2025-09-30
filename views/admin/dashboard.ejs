@@ -1,0 +1,63 @@
+<%- include('../partials/header-admin') %>
+
+<div class="container-fluid">
+  <div class="row">
+    <!-- Sidebar -->
+    <div class="col-md-3 col-lg-2">
+      <%- include('sidebar') %>
+    </div>
+
+    <!-- Main Content -->
+    <main class="col-md-9 col-lg-10 p-4">
+      <h2 class="mb-4">Admin Dashboard</h2>
+
+      <!-- Statistik -->
+      <div class="row g-4">
+        <div class="col-md-3">
+          <div class="card bg-dark text-white shadow-sm p-3">
+            <h6>Total Users</h6>
+            <h3><%= stats.totalUsers %></h3>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-dark text-white shadow-sm p-3">
+            <h6>Active Tasks</h6>
+            <h3><%= stats.activeTasks %></h3>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-dark text-white shadow-sm p-3">
+            <h6>Active Raffles</h6>
+            <h3><%= stats.activeRaffles %></h3>
+          </div>
+        </div>
+        <div class="col-md-3">
+          <div class="card bg-dark text-white shadow-sm p-3">
+            <h6>Total Wallets</h6>
+            <h3><%= stats.totalWallets %></h3>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aktivitas -->
+      <div class="card bg-dark text-white shadow-sm mt-4">
+        <div class="card-header">Recent Activity</div>
+        <ul class="list-group list-group-flush">
+          <% if (recentActivity.length > 0) { %>
+            <% recentActivity.forEach(a => { %>
+              <li class="list-group-item bg-dark text-white d-flex justify-content-between">
+                <span><%= a.description %></span>
+                <small class="text-muted"><%= new Date(a.created_at).toLocaleString() %></small>
+              </li>
+            <% }) %>
+          <% } else { %>
+            <li class="list-group-item bg-dark text-white">No activity found.</li>
+          <% } %>
+        </ul>
+      </div>
+    </main>
+  </div>
+</div>
+
+</body>
+</html>

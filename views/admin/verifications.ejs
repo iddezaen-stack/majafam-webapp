@@ -1,0 +1,48 @@
+<%- include('../partials/header-admin') %>
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-md-3 col-lg-2">
+      <%- include('sidebar') %>
+    </div>
+    <main class="col-md-9 col-lg-10 p-4">
+      <h2 class="mb-4">Verifikasi Tugas</h2>
+      <div class="card bg-dark text-white shadow-lg rounded-4">
+        <div class="table-responsive">
+          <table class="table table-dark table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Pengguna</th>
+                <th>Tugas</th>
+                <th>Bukti</th>
+                <th>Tanggal</th>
+                <th>Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (submissions.length > 0) { %>
+                <% submissions.forEach(s => { %>
+                  <tr>
+                    <td><%= s.username %></td>
+                    <td><%= s.task_title %></td>
+                    <td><%= s.proof_data %></td>
+                    <td><%= new Date(s.completed_at).toLocaleString() %></td>
+                    <td>
+                      <form action="/admin/verifications/<%= s.id %>/approve" method="POST" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-success">Setujui</button>
+                      </form>
+                      <form action="/admin/verifications/<%= s.id %>/reject" method="POST" class="d-inline">
+                        <button type="submit" class="btn btn-sm btn-danger">Tolak</button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }) %>
+              <% } else { %>
+                <tr><td colspan="5" class="text-center text-muted">Tidak ada pengajuan untuk diverifikasi.</td></tr>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
