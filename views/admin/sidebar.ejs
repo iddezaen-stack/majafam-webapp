@@ -11,18 +11,6 @@
         <i class="bi bi-list-task me-2"></i> Kelola Tugas
       </a>
     </li>
-    <ul class="nav flex-column">
-  <li class="nav-item">
-    <a class="nav-link <%= title==='Admin Dashboard' ? 'active' : '' %>" href="/admin/dashboard">
-      <i class="bi bi-speedometer2 me-2"></i> Dashboard
-    </a>
-  </li>
-  <li class="nav-item">
-    <a class="nav-link <%= title==='Kelola Tugas' ? 'active' : '' %>" href="/admin/tasks">
-      <i class="bi bi-list-task me-2"></i> Kelola Tugas
-    </a>
-  </li>
-  
   <li class="nav-item">
     <a class="nav-link <%= title==='Verifikasi Tugas' ? 'active' : '' %>" href="/admin/verifications">
       <i class="bi bi-patch-check-fill me-2"></i> Verifikasi
@@ -32,6 +20,11 @@
     <li class="nav-item">
       <a href="/admin/raffles" class="nav-link <%= (title === 'Kelola Raffles') ? 'active' : '' %>">
         <i class="bi bi-ticket-detailed me-2"></i> Kelola Raffles
+      </a>
+    </li>
+    <li class="nav-item">
+      <a href="/admin/raffles" class="nav-link <%= (title === 'Kelola Raffles' || title.includes('Peserta Raffle')) ? 'active' : '' %>">
+        <i class="bi bi-gift me-2"></i> Kelola Raffles
       </a>
     </li>
     <li class="nav-item">

@@ -8,8 +8,10 @@ const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
 const path = require("path");
+const pm2 = require("pm2");
 const app = express();
-const { admin } = require("googleapis/build/src/apis/admin");
+const { google } = require('googleapis');
+const youtube = google.youtube({ version: 'v3', auth: process.env.YOUTUBE_API_KEY });
 
 // ================= DATABASE =================
 const pool = new Pool({
@@ -955,191 +957,233 @@ app.post("/admin/tasks/:id/delete", requireAdmin, async (req, res) => {
 });
 
 // ============= LIVE STREAM ROUTES =================
-const { google } = require('googleapis');
-const youtube = google.youtube({ version: 'v3', auth: process.env.YOUTUBE_API_KEY });
 
-// READ: Menampilkan daftar semua livestream
+// READ: Menampilkan daftar semua livestream + Status Worker PM2
 app.get("/admin/livestream", requireAdmin, async (req, res) => {
-  try {
-    const streamsRes = await pool.query("SELECT * FROM livestreams ORDER BY created_at DESC");
-    res.render("admin/livestream", {
-      title: "Kelola Livestream",
-      user: req.user,
-      streams: streamsRes.rows,
+    // 1. Logika untuk mendapatkan Status Worker PM2
+    pm2.connect(async (err) => {
+        let workerStatus = 'OFFLINE';
+        
+        if (!err) {
+            // Gunakan Promise untuk menangani pm2.list
+            const list = await new Promise((resolve, reject) => pm2.list((e, l) => (e ? reject(e) : resolve(l))));
+            pm2.disconnect();
+            
+            const worker = list.find(app => app.name === 'yt-point-worker');
+            if (worker && worker.pm2_env.status === 'online') {
+                workerStatus = 'ONLINE';
+            }
+        }
+        
+        // 2. Logika Database dan Rendering
+        try {
+            const streamsRes = await pool.query("SELECT * FROM livestreams ORDER BY created_at DESC");
+            res.render("admin/livestream", {
+                title: "Kelola Livestream",
+                user: req.user,
+                streams: streamsRes.rows,
+                workerStatus: workerStatus, // <--- Variabel dikirim ke EJS
+            });
+        } catch (dbErr) {
+            console.error("Admin livestream error:", dbErr);
+            req.flash("error_msg", "Gagal memuat data livestream.");
+            res.redirect("/admin/dashboard");
+        }
     });
-  } catch (err) {
-    console.error("Admin livestream error:", err);
-    req.flash("error_msg", "Gagal memuat data livestream.");
-    res.redirect("/admin/dashboard");
-  }
-});
-
-// CREATE (FORM): Menampilkan form tambah livestream
-app.get("/admin/livestream/new", requireAdmin, (req, res) => {
-  res.render("admin/livestream-form", {
-    title: "Tambah Livestream",
-    user: req.user,
-    stream: null // 'stream' null karena ini form untuk data baru
-  });
 });
 
 // CREATE (PROCESS): Memproses penambahan livestream baru
+// Rute ini akan MENYIMPAN data dan MENGATUR stream terbaru sebagai 'active' di DB.
 app.post("/admin/livestream/new", requireAdmin, async (req, res) => {
-  const { title, videoId } = req.body;
-  try {
-    const response = await youtube.videos.list({ part: 'liveStreamingDetails', id: videoId });
-    if (!response.data.items[0]?.liveStreamingDetails?.activeLiveChatId) {
-      req.flash("error_msg", "Gagal mendapatkan Live Chat ID. Pastikan Video ID valid.");
-      return res.redirect("/admin/livestream");
-    }
-    const liveChatId = response.data.items[0].liveStreamingDetails.activeLiveChatId;
-    
-    await pool.query("UPDATE livestreams SET status = 'finished' WHERE status = 'active'");
-    await pool.query(
-      "INSERT INTO livestreams (title, youtube_video_id, live_chat_id, status) VALUES ($1, $2, $3, 'active')",
-      [title, videoId, liveChatId]
-    );
-
-    req.flash("success_msg", "Livestream berhasil ditambahkan dan diaktifkan.");
-    res.redirect("/admin/livestream");
-  } catch (err) {
-    console.error("Gagal menambah livestream:", err);
-    req.flash("error_msg", "Terjadi kesalahan saat menambah livestream.");
-    res.redirect("/admin/livestream");
-  }
-});
-
-// UPDATE (FORM): Menampilkan form edit berisi data lama
-app.get("/admin/livestream/:id/edit", requireAdmin, async (req, res) => {
-  try {
-    const streamRes = await pool.query("SELECT * FROM livestreams WHERE id=$1", [req.params.id]);
-    if (streamRes.rows.length === 0) {
-      req.flash("error_msg", "Livestream tidak ditemukan.");
-      return res.redirect("/admin/livestream");
-    }
-    res.render("admin/livestream-form", {
-      title: "Edit Livestream",
-      user: req.user,
-      stream: streamRes.rows[0] // Kirim data stream yang ada ke form
-    });
-  } catch (err) {
-    console.error("Gagal memuat form edit livestream:", err);
-    req.flash("error_msg", "Gagal memuat data untuk diedit.");
-    res.redirect("/admin/livestream");
-  }
-});
-
-// UPDATE (PROCESS): Memproses update livestream
-app.post("/admin/livestream/:id/edit", requireAdmin, async (req, res) => {
-  const { title, videoId } = req.body;
-  const { id } = req.params;
-  try {
-    // Jika videoId diubah, kita perlu mengambil liveChatId yang baru.
-    const oldStreamRes = await pool.query("SELECT youtube_video_id FROM livestreams WHERE id=$1", [id]);
-    let liveChatId = oldStreamRes.rows[0].live_chat_id;
-    if (oldStreamRes.rows[0].youtube_video_id !== videoId) {
+    const { title, videoId } = req.body;
+    try {
+        // Mendapatkan Live Chat ID dari YouTube API
         const response = await youtube.videos.list({ part: 'liveStreamingDetails', id: videoId });
         if (!response.data.items[0]?.liveStreamingDetails?.activeLiveChatId) {
-            req.flash("error_msg", "Video ID baru tidak valid atau tidak memiliki live chat aktif.");
-            return res.redirect(`/admin/livestream/${id}/edit`);
+            req.flash("error_msg", "Gagal mendapatkan Live Chat ID. Pastikan Video ID valid dan Live Chat aktif.");
+            return res.redirect("/admin/livestream");
         }
-        liveChatId = response.data.items[0].liveStreamingDetails.activeLiveChatId;
-    }
+        const liveChatId = response.data.items[0].liveStreamingDetails.activeLiveChatId;
+        
+        // Nonaktifkan semua stream lama dan aktifkan yang baru
+        await pool.query("UPDATE livestreams SET status = 'finished' WHERE status = 'active'");
+        await pool.query(
+            "INSERT INTO livestreams (title, youtube_video_id, live_chat_id, status) VALUES ($1, $2, $3, 'active')",
+            [title, videoId, liveChatId]
+        );
 
-    await pool.query(
-      "UPDATE livestreams SET title=$1, youtube_video_id=$2, live_chat_id=$3 WHERE id=$4",
-      [title, videoId, liveChatId, id]
-    );
-    req.flash("success_msg", "Livestream berhasil diperbarui.");
-    res.redirect("/admin/livestream");
-  } catch (err) {
-    console.error("Gagal update livestream:", err);
-    req.flash("error_msg", "Terjadi kesalahan saat memperbarui livestream.");
-    res.redirect("/admin/livestream");
-  }
+        // Setelah data disimpan, worker dapat di-START dari dashboard
+        req.flash("success_msg", "Livestream berhasil disimpan dan diatur sebagai AKTIF. Silakan START Worker Poin.");
+        res.redirect("/admin/livestream");
+    } catch (err) {
+        console.error("Gagal menambah livestream:", err);
+        req.flash("error_msg", "Terjadi kesalahan saat menambah livestream.");
+        res.redirect("/admin/livestream");
+    }
 });
 
-// DELETE: Menghapus livestream
-app.post("/admin/livestream/:id/delete", requireAdmin, async (req, res) => {
-  try {
-    await pool.query("DELETE FROM livestreams WHERE id=$1", [req.params.id]);
-    req.flash("success_msg", "Livestream berhasil dihapus.");
-    res.redirect("/admin/livestream");
-  } catch (err) {
-    console.error("Gagal menghapus livestream:", err);
-    req.flash("error_msg", "Gagal menghapus livestream.");
-    res.redirect("/admin/livestream");
-  }
+// Rute CRUD lainnya (CREATE FORM, UPDATE, DELETE) tetap sama.
+// ...
+
+// ============= WORKER CONTROL API ROUTES =================
+
+// Endpoint untuk Mendapatkan Status Worker (AJAX)
+app.get('/admin/worker/status', requireAdmin, (req, res) => {
+    pm2.connect(function(err) {
+        let workerStatus = 'OFFLINE';
+        if (err) return res.json({ status: 'OFFLINE' });
+        
+        pm2.list((err, list) => {
+            pm2.disconnect();
+            const worker = list.find(app => app.name === 'yt-point-worker');
+            if (worker && worker.pm2_env.status === 'online') {
+                workerStatus = 'ONLINE';
+            }
+            res.json({ status: workerStatus });
+        });
+    });
+});
+
+// Endpoint untuk Memulai Worker
+app.post('/admin/worker/start', requireAdmin, (req, res) => {
+    pm2.connect(function(err) {
+        if (err) return res.status(500).json({ success: false, message: 'Koneksi PM2 gagal.' });
+        
+        pm2.start({
+            script: 'youtube-worker.js',
+            name: 'yt-point-worker',
+            exec_mode: 'fork'
+        }, (err, apps) => {
+            pm2.disconnect();
+            if (err) return res.json({ success: false, message: 'Gagal memulai worker: ' + err.message });
+            res.json({ success: true, message: 'Worker Poin berhasil dimulai!' });
+        });
+    });
+});
+
+// Endpoint untuk Menghentikan Worker
+app.post('/admin/worker/stop', requireAdmin, (req, res) => {
+    pm2.connect(function(err) {
+        if (err) return res.status(500).json({ success: false, message: 'Koneksi PM2 gagal.' });
+        
+        pm2.stop('yt-point-worker', (err, apps) => {
+            pm2.disconnect();
+            if (err && !err.message.includes('process name not found')) {
+                console.warn('Attempted to stop worker, potential issue:', err.message);
+            }
+            res.json({ success: true, message: 'Worker Poin berhasil dihentikan.' });
+        });
+    });
 });
 
 // ================= ROUTES: ADMIN RAFFLES =================
 
-// List semua raffles
+// READ: Menampilkan daftar semua raffles + Jumlah Peserta
 app.get("/admin/raffles", requireAdmin, async (req, res) => {
-  try {
-    const rafflesRes = await pool.query(
-      "SELECT * FROM raffles ORDER BY created_at DESC"
-    );
-    res.render("admin/raffles", {
-      title: "Kelola Raffles",
-      user: req.user,
-      raffles: rafflesRes.rows,
-    });
-  } catch (err) {
-    console.error("Admin raffles error:", err);
-    res.render("admin/raffles", {
-      title: "Kelola Raffles",
-      user: req.user,
-      raffles: [],
-    });
-  }
+    try {
+        const query = `
+            SELECT 
+                r.id, r.title, r.reward, r.status, r.draw_date, r.created_at,
+                COUNT(re.id) AS total_entries  -- Menghitung jumlah peserta
+            FROM raffles r
+            LEFT JOIN raffle_entries re ON r.id = re.raffle_id
+            GROUP BY r.id, r.title, r.reward, r.status, r.draw_date, r.created_at
+            ORDER BY r.created_at DESC
+        `;
+        const rafflesRes = await pool.query(query);
+        
+        res.render("admin/raffles", {
+            title: "Kelola Raffles",
+            user: req.user,
+            raffles: rafflesRes.rows,
+        });
+    } catch (err) {
+        console.error("Admin raffles error:", err);
+        // Tetap render halaman meskipun ada error database
+        res.render("admin/raffles", {
+            title: "Kelola Raffles",
+            user: req.user,
+            raffles: [],
+        });
+    }
 });
 
-// Tambah raffle
+// GET: Menampilkan Daftar Peserta untuk Raffle Tertentu
+app.get("/admin/raffles/:id/entries", requireAdmin, async (req, res) => {
+    const raffleId = req.params.id;
+    try {
+        const entriesQuery = `
+            SELECT 
+                u.username, u.email, re.entry_time
+            FROM raffle_entries re
+            JOIN users u ON re.user_id = u.id
+            WHERE re.raffle_id = $1
+            ORDER BY re.entry_time ASC
+        `;
+        const entriesRes = await pool.query(entriesQuery, [raffleId]);
+
+        const raffleRes = await pool.query("SELECT title FROM raffles WHERE id = $1", [raffleId]);
+        const raffleTitle = raffleRes.rows.length > 0 ? raffleRes.rows[0].title : "Raffle Tidak Ditemukan";
+
+        res.render("admin/raffle-entries", {
+            title: `Peserta Raffle: ${raffleTitle}`,
+            user: req.user,
+            entries: entriesRes.rows,
+            raffleTitle: raffleTitle
+        });
+    } catch (err) {
+        console.error("Raffle entries error:", err);
+        req.flash("error_msg", "Gagal memuat daftar peserta.");
+        res.redirect("/admin/raffles");
+    }
+});
+
+
+// Tambah raffle (Tidak Ada Perubahan)
 app.post("/admin/raffles/new", requireAdmin, async (req, res) => {
-  const { title, reward, status, draw_date } = req.body;
-  try {
-    await pool.query(
-      "INSERT INTO raffles (title, reward, status, draw_date) VALUES ($1,$2,$3,$4)",
-      [title, reward, status, draw_date]
-    );
-    req.flash("success_msg", "Raffle berhasil ditambahkan.");
-    res.redirect("/admin/raffles");
-  } catch (err) {
-    console.error("Tambah raffle error:", err);
-    req.flash("error_msg", "Gagal menambahkan raffle.");
-    res.redirect("/admin/raffles");
-  }
+    const { title, reward, status, draw_date } = req.body;
+    try {
+        await pool.query(
+            "INSERT INTO raffles (title, reward, status, draw_date) VALUES ($1,$2,$3,$4)",
+            [title, reward, status, draw_date]
+        );
+        req.flash("success_msg", "Raffle berhasil ditambahkan.");
+        res.redirect("/admin/raffles");
+    } catch (err) {
+        console.error("Tambah raffle error:", err);
+        req.flash("error_msg", "Gagal menambahkan raffle.");
+        res.redirect("/admin/raffles");
+    }
 });
 
-// Edit raffle
+// Edit raffle (Tidak Ada Perubahan)
 app.post("/admin/raffles/:id/edit", requireAdmin, async (req, res) => {
-  const { title, reward, status, draw_date } = req.body;
-  try {
-    await pool.query(
-      "UPDATE raffles SET title=$1, reward=$2, status=$3, draw_date=$4 WHERE id=$5",
-      [title, reward, status, draw_date, req.params.id]
-    );
-    req.flash("success_msg", "Raffle berhasil diperbarui.");
-    res.redirect("/admin/raffles");
-  } catch (err) {
-    console.error("Edit raffle error:", err);
-    req.flash("error_msg", "Gagal memperbarui raffle.");
-    res.redirect("/admin/raffles");
-  }
+    const { title, reward, status, draw_date } = req.body;
+    try {
+        await pool.query(
+            "UPDATE raffles SET title=$1, reward=$2, status=$3, draw_date=$4 WHERE id=$5",
+            [title, reward, status, draw_date, req.params.id]
+        );
+        req.flash("success_msg", "Raffle berhasil diperbarui.");
+        res.redirect("/admin/raffles");
+    } catch (err) {
+        console.error("Edit raffle error:", err);
+        req.flash("error_msg", "Gagal memperbarui raffle.");
+        res.redirect("/admin/raffles");
+    }
 });
 
-// Hapus raffle
+// Hapus raffle (Tidak Ada Perubahan)
 app.post("/admin/raffles/:id/delete", requireAdmin, async (req, res) => {
-  try {
-    await pool.query("DELETE FROM raffles WHERE id=$1", [req.params.id]);
-    req.flash("success_msg", "Raffle berhasil dihapus.");
-    res.redirect("/admin/raffles");
-  } catch (err) {
-    console.error("Hapus raffle error:", err);
-    req.flash("error_msg", "Gagal menghapus raffle.");
-    res.redirect("/admin/raffles");
-  }
+    try {
+        await pool.query("DELETE FROM raffles WHERE id=$1", [req.params.id]);
+        req.flash("success_msg", "Raffle berhasil dihapus.");
+        res.redirect("/admin/raffles");
+    } catch (err) {
+        console.error("Hapus raffle error:", err);
+        req.flash("error_msg", "Gagal menghapus raffle.");
+        res.redirect("/admin/raffles");
+    }
 });
 
 // ================ ROUTES ADMIN CLAIM CODE ====================

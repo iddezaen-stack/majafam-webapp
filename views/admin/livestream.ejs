@@ -1,34 +1,92 @@
-<%- include('../partials/header-admin') %>
-
-<div class="container-fluid">
-  <div class="row">
-    <div class="col-md-3 col-lg-2 bg-navy text-white vh-100 p-3">
-      <%- include('sidebar') %>
+<div class="card mt-4 shadow-sm border-secondary">
+    <div class="card-header bg-secondary text-white">
+        <h5>2. Kontrol Worker Poin Otomatis</h5>
     </div>
+    <div class="card-body text-center">
+        <p class="mb-3">Status saat ini: 
+            <span id="current-status" class="fw-bold text-warning">...Memuat...</span>
+        </p>
+        
+        <button id="start-worker-btn" class="btn btn-success btn-lg me-3" onclick="controlWorker('start')" disabled>
+            <i class="fas fa-play me-2"></i> START WORKER
+        </button>
+        
+        <button id="stop-worker-btn" class="btn btn-danger btn-lg" onclick="controlWorker('stop')" disabled>
+            <i class="fas fa-stop me-2"></i> STOP WORKER
+        </button>
 
-    <div class="col-md-9 col-lg-10 p-4">
-      <h2 class="mb-4">Kelola Livestream</h2>
-
-      <div class="card mb-4 shadow-sm">
-        <div class="card-body">
-          <h5 class="mb-3">Tambah Livestream Baru</h5>
-          <form action="/admin/livestream/new" method="POST">
-            <div class="mb-3">
-              <label for="title" class="form-label">Judul Livestream</label>
-              <input type="text" class="form-control" id="title" name="title" required>
-            </div>
-            <div class="mb-3">
-              <label for="videoId" class="form-label">YouTube Video ID</label>
-              <input type="text" class="form-control" id="videoId" name="videoId" required placeholder="Contoh: dQw4w9WgXcQ">
-              <div class="form-text">
-                Salin bagian terakhir dari URL YouTube.
-              </div>
-            </div>
-            <button type="submit" class="btn btn-primary mt-3">Simpan dan Aktifkan Stream</button>
-          </form>
-        </div>
-      </div>
-      
-      </div>
-  </div>
+        <p class="text-muted mt-3"><i class="fas fa-bolt me-1"></i> Kontrol penuh tanpa perlu SSH!</p>
+    </div>
 </div>
+
+<script>
+    // Fungsi untuk memperbarui status di tampilan
+    function updateStatusDisplay(status) {
+        const statusSpan = document.getElementById('current-status');
+        const startBtn = document.getElementById('start-worker-btn');
+        const stopBtn = document.getElementById('stop-worker-btn');
+        
+        statusSpan.textContent = status;
+        
+        if (status === 'ONLINE') {
+            statusSpan.className = 'text-success fw-bold';
+            startBtn.disabled = true; // Nonaktifkan START
+            stopBtn.disabled = false; // Aktifkan STOP
+        } else {
+            statusSpan.className = 'text-danger fw-bold';
+            startBtn.disabled = false; // Aktifkan START
+            stopBtn.disabled = true; // Nonaktifkan STOP
+        }
+    }
+
+    // Fungsi untuk mengambil status PM2 secara real-time
+    async function fetchStatus() {
+        try {
+            const response = await fetch('/admin/worker/status');
+            const data = await response.json();
+            updateStatusDisplay(data.status);
+        } catch (error) {
+            console.error('Error fetching status:', error);
+            updateStatusDisplay('ERROR');
+        }
+    }
+    
+    // Fungsi utama untuk START/STOP Worker
+    async function controlWorker(action) {
+        if (!confirm(`Apakah Anda yakin ingin ${action.toUpperCase()} Worker Poin?`)) return;
+
+        // Disable semua tombol saat proses berjalan
+        document.getElementById('start-worker-btn').disabled = true;
+        document.getElementById('stop-worker-btn').disabled = true;
+        document.getElementById('current-status').textContent = 'Processing...';
+
+        try {
+            const response = await fetch(`/admin/worker/${action}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                alert(data.message);
+            } else {
+                alert(`Gagal: ${data.message}`);
+            }
+        } catch (error) {
+            alert('Terjadi kesalahan koneksi server.');
+            console.error('Error controlling worker:', error);
+        } finally {
+            // Beri waktu PM2 untuk update, lalu ambil status baru
+            setTimeout(fetchStatus, 3000); 
+        }
+    }
+
+    // Pasang fungsi controlWorker ke window agar dapat diakses oleh tombol
+    window.controlWorker = controlWorker;
+    
+    // Panggil status saat halaman dimuat
+    fetchStatus();
+    
+    // Refresh status secara otomatis setiap 10 detik
+    setInterval(fetchStatus, 10000); 
+</script>
