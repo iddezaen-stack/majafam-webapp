@@ -1,0 +1,14 @@
+global-bundle.pem
+# Node.js dependencies
+node_modules/
+
+# Environment files
+.env
+
+# Logs
+npm-debug.log
+yarn-error.log
+
+# System files
+.DS_Store
+Thumbs.db
