@@ -1,61 +1,126 @@
-<div class="card mt-4 shadow-sm border-secondary">
-    <div class="card-header bg-secondary text-white">
-        <h5>2. Kontrol Worker Poin Otomatis</h5>
-    </div>
-    <div class="card-body text-center">
-        <p class="mb-3">Status saat ini: 
-            <span id="current-status" class="fw-bold text-warning">...Memuat...</span>
-        </p>
-        
-        <button id="start-worker-btn" class="btn btn-success btn-lg me-3" onclick="controlWorker('start')" disabled>
-            <i class="fas fa-play me-2"></i> START WORKER
-        </button>
-        
-        <button id="stop-worker-btn" class="btn btn-danger btn-lg" onclick="controlWorker('stop')" disabled>
-            <i class="fas fa-stop me-2"></i> STOP WORKER
-        </button>
+<%- include('../partials/header-admin') %>
 
-        <p class="text-muted mt-3"><i class="fas fa-bolt me-1"></i> Kontrol penuh tanpa perlu SSH!</p>
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-3 col-lg-2 admin-sidebar text-white vh-100 p-3"> 
+            <%- include('sidebar') %>
+        </div>
+
+        <div class="col-md-9 col-lg-10 p-4">
+            <h2 class="mb-4 text-white">Kelola Livestream & Poin Worker</h2>
+
+            <div class="row g-4">
+                
+                <div class="col-lg-5">
+                    
+                    <div class="card shadow-lg border-0 bg-dark text-white mb-4">
+                        <div class="card-body p-4">
+                            <h4 class="card-title mb-3">Status Worker Poin</h4>
+                            <hr class="border-secondary">
+                            
+                            <div class="d-flex align-items-center">
+                                <span id="current-status-icon" class="me-3 fs-1 text-warning">
+                                    <i class="fas fa-sync fa-spin"></i> </span>
+                                <div>
+                                    <h3 id="current-status" class="fw-bold mb-0 text-warning">...Memuat Status...</h3>
+                                    <p class="text-white-50">Poin dibagikan hanya saat status AKTIF.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card shadow-lg border-0 bg-dark text-white">
+                        <div class="card-body p-4 text-center">
+                            <h4 class="card-title mb-4">Kontrol Worker Poin</h4>
+                            
+                            <div class="d-flex justify-content-center">
+                                <button id="start-worker-btn" class="btn btn-success btn-lg me-4 shadow-sm" onclick="controlWorker('start')" disabled>
+                                    <i class="fas fa-play me-2"></i> START
+                                </button>
+                                
+                                <button id="stop-worker-btn" class="btn btn-danger btn-lg shadow-sm" onclick="controlWorker('stop')" disabled>
+                                    <i class="fas fa-stop me-2"></i> STOP
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-7">
+                    <div class="card shadow-lg border-0 bg-dark text-white">
+                        <div class="card-body p-4">
+                            <h4 class="card-title mb-4">3. Tambah Livestream Baru</h4>
+                            <form action="/admin/livestream/new" method="POST">
+                                <div class="mb-3">
+                                    <label for="title" class="form-label text-white-50">Judul Livestream</label>
+                                    <input type="text" class="form-control bg-secondary text-white border-secondary" id="title" name="title" required>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="channelIdStreamer" class="form-label text-white-50">Channel ID Streamer Anda</label>
+                                    <input type="text" class="form-control bg-secondary text-white border-secondary" id="channelIdStreamer" name="channelIdStreamer" required placeholder="Contoh: UC_x5XG1OV2P6W5a23sFsdgA">
+                                    <div class="form-text text-white-50">
+                                        Channel ID Anda sendiri (Streamer).
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="videoId" class="form-label text-white-50">YouTube Video ID</label>
+                                    <input type="text" class="form-control bg-secondary text-white border-secondary" id="videoId" name="videoId" required placeholder="Contoh: dQw4w9WgXcQ">
+                                    <div class="form-text text-white-50">
+                                        Salin bagian terakhir dari URL YouTube.
+                                    </div>
+                                </div>
+                                <button type="submit" class="btn btn-primary btn-lg w-100 mt-3">Simpan Data Stream</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
 <script>
-    // Fungsi untuk memperbarui status di tampilan
+    // FUNGSI JAVASCRIPT UNTUK KONTROL WORKER (START/STOP/STATUS)
     function updateStatusDisplay(status) {
         const statusSpan = document.getElementById('current-status');
+        const statusIcon = document.getElementById('current-status-icon');
         const startBtn = document.getElementById('start-worker-btn');
         const stopBtn = document.getElementById('stop-worker-btn');
         
         statusSpan.textContent = status;
         
         if (status === 'ONLINE') {
-            statusSpan.className = 'text-success fw-bold';
-            startBtn.disabled = true; // Nonaktifkan START
-            stopBtn.disabled = false; // Aktifkan STOP
+            statusSpan.className = 'fw-bold text-success';
+            statusIcon.innerHTML = '<i class="fas fa-check-circle"></i>';
+            statusIcon.className = 'me-3 fs-1 text-success';
+
+            startBtn.disabled = true;
+            stopBtn.disabled = false;
         } else {
-            statusSpan.className = 'text-danger fw-bold';
-            startBtn.disabled = false; // Aktifkan START
-            stopBtn.disabled = true; // Nonaktifkan STOP
+            statusSpan.className = 'fw-bold text-danger';
+            statusIcon.innerHTML = '<i class="fas fa-times-circle"></i>';
+            statusIcon.className = 'me-3 fs-1 text-danger';
+            
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
         }
     }
 
-    // Fungsi untuk mengambil status PM2 secara real-time
     async function fetchStatus() {
         try {
             const response = await fetch('/admin/worker/status');
             const data = await response.json();
             updateStatusDisplay(data.status);
         } catch (error) {
-            console.error('Error fetching status:', error);
             updateStatusDisplay('ERROR');
         }
     }
     
-    // Fungsi utama untuk START/STOP Worker
     async function controlWorker(action) {
         if (!confirm(`Apakah Anda yakin ingin ${action.toUpperCase()} Worker Poin?`)) return;
 
-        // Disable semua tombol saat proses berjalan
         document.getElementById('start-worker-btn').disabled = true;
         document.getElementById('stop-worker-btn').disabled = true;
         document.getElementById('current-status').textContent = 'Processing...';
@@ -74,19 +139,14 @@
             }
         } catch (error) {
             alert('Terjadi kesalahan koneksi server.');
-            console.error('Error controlling worker:', error);
         } finally {
-            // Beri waktu PM2 untuk update, lalu ambil status baru
             setTimeout(fetchStatus, 3000); 
         }
     }
 
-    // Pasang fungsi controlWorker ke window agar dapat diakses oleh tombol
     window.controlWorker = controlWorker;
     
-    // Panggil status saat halaman dimuat
-    fetchStatus();
-    
-    // Refresh status secara otomatis setiap 10 detik
+    // Panggil status saat halaman dimuat dan set interval
+    document.addEventListener('DOMContentLoaded', fetchStatus);
     setInterval(fetchStatus, 10000); 
 </script>

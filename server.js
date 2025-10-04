@@ -10,16 +10,22 @@ const bcrypt = require("bcrypt");
 const path = require("path");
 const pm2 = require("pm2");
 const app = express();
+const fs = require("fs");
 const { google } = require('googleapis');
 const youtube = google.youtube({ version: 'v3', auth: process.env.YOUTUBE_API_KEY });
 
 // ================= DATABASE =================
 const pool = new Pool({
-  host: "localhost",
-  port: 5432,
-  user: "postgres",
+  host: process.env.DB_HOST,
+  port: process.env.DB_PORT,
+  user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: "majafam_web",
+  database: process.env.DB_NAME,
+  ssl: {
+    rejectUnauthorized: true,
+    ca: fs.readFileSync(__dirname + '/global-bundle.pem').toString()
+  }
+
 });
 
 // ================= MIDDLEWARE =================
@@ -39,11 +45,36 @@ app.use(flash());
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Middleware ini memastikan user sudah terautentikasi (login)
+function requireLogin(req, res, next) {
+    if (req.isAuthenticated()) {
+        // Jika user sudah login, lanjutkan ke route berikutnya
+        return next();
+    }
+    // Jika belum login, simpan pesan flash dan redirect ke halaman login
+    req.flash('error_msg', 'Anda harus login untuk mengakses halaman ini.');
+    res.redirect('/login');
+}
+
 // MIDDLEWARE TIP
 app.use((req, res, next) => {
     res.locals.user = req.user || null;
       next();
       });
+
+//MIDDLEWARE FLASH MESSAGE
+app.use((req, res, next) => {
+    // Memastikan variabel 'messages' selalu tersedia di semua template EJS
+    // Ini mengumpulkan semua jenis flash message (success_msg, error_msg, etc.)
+    res.locals.messages = req.flash();
+    
+    // Ini adalah fallback untuk halaman lama yang mungkin memanggil success_msg / error_msg langsung
+    res.locals.success_msg = req.flash('success_msg');
+    res.locals.error_msg = req.flash('error_msg');
+    
+    //
+    next();
+});
 
 // Middleware global untuk inject saldo ke semua view
 
@@ -351,28 +382,138 @@ app.get("/wallet/:currency", ensureAuthenticated, async (req, res) => {
   }
 });
 
-// ================= ROUTES: TASKS =================
+// ================= ROUTES: USER TASKS (FINAL) =================
+
+// ROUTE 1: GET /tasks (Menampilkan daftar tugas publik)
 app.get("/tasks", ensureAuthenticated, async (req, res) => {
-  try {
-    const { wallets, selectedWallet } = await loadWallets(req);
-    const tasksRes = await pool.query("SELECT * FROM tasks WHERE status='active' ORDER BY created_at DESC");
-    res.render("tasks", { 
-      title: "Tugas", 
-      user: req.user, 
-      wallets, 
-      selectedWallet,
-      tasks: tasksRes.rows 
-    });
-  } catch (err) {
-    console.error(err);
-    res.render("tasks", { 
-      title: "Tugas", 
-      user: req.user, 
-      wallets: [], 
-      selectedWallet: { currency: "IDR", balance: 0 },
-      tasks: [] 
-    });
-  }
+    try {
+        // PERBAIKAN: Ambil kolom baru (task_type, verification_url)
+        const tasksRes = await pool.query(
+            "SELECT id, title, description, reward, status, created_at, task_type, verification_url FROM tasks WHERE status='active' ORDER BY created_at DESC"
+        );
+        
+        // Ambil ID tugas yang sudah diselesaikan oleh user (untuk menandai sebagai completed)
+        const completedRes = await pool.query(
+            "SELECT task_id, status FROM task_completions WHERE user_id = $1 AND (status = 'approved' OR status = 'pending')",
+            [req.user.id]
+        );
+        const completedTaskIds = completedRes.rows.map(row => row.task_id);
+
+        // Map tasks untuk menentukan status completion
+        const tasks = tasksRes.rows.map(task => ({
+            ...task,
+            // Menandai tugas yang sudah diselesaikan/diajukan
+            is_completed: completedTaskIds.includes(task.id), 
+        }));
+
+        const { wallets, selectedWallet } = await loadWallets(req);
+
+        res.render("tasks", { 
+            title: "Tugas", 
+            user: req.user, 
+            wallets, 
+            selectedWallet,
+            tasks: tasks 
+        });
+    } catch (err) {
+        console.error("User tasks READ error:", err);
+        req.flash("error_msg", "Gagal memuat daftar tugas.");
+        res.redirect("/dashboard");
+    }
+});
+
+// ROUTE 2: POST /tasks/:id/submit (Rute Verifikasi Manual)
+app.post("/tasks/:id/submit", ensureAuthenticated, async (req, res) => {
+    const taskId = req.params.id;
+    const userId = req.user.id;
+    const { proof } = req.body; // proof adalah data bukti dari form
+
+    try {
+        // Cek apakah user sudah pernah submit untuk tugas ini (pending atau approved)
+        const existing = await pool.query(
+            "SELECT id FROM task_completions WHERE user_id=$1 AND task_id=$2 AND (status = 'pending' OR status = 'approved')", 
+            [userId, taskId]
+        );
+        if (existing.rows.length > 0) {
+            req.flash("error_msg", "Anda sudah mengirimkan bukti untuk tugas ini atau sudah disetujui.");
+            return res.redirect("/tasks");
+        }
+        
+        // Pengecekan: Pastikan tugas ini BUKAN tugas otomatis
+        const taskTypeRes = await pool.query("SELECT task_type FROM tasks WHERE id=$1", [taskId]);
+        if (taskTypeRes.rows[0]?.task_type !== 'manual') {
+             req.flash("error_msg", "Tugas ini adalah tugas Otomatis. Silakan gunakan tautan klaim.");
+             return res.redirect("/tasks");
+        }
+        
+        // Masukkan submission baru dengan status 'pending'
+        await pool.query(
+            "INSERT INTO task_completions (user_id, task_id, proof_data, status) VALUES ($1, $2, $3, 'pending')",
+            [userId, taskId, proof]
+        );
+        req.flash("success_msg", "Bukti berhasil dikirim dan sedang menunggu verifikasi.");
+        res.redirect("/tasks");
+    } catch (err) {
+        console.error("Error submitting task proof:", err);
+        req.flash("error_msg", "Gagal mengirim bukti.");
+        res.redirect("/tasks");
+    }
+});
+
+// ROUTE 3: GET /task/verify/:taskId (Rute Verifikasi Otomatis - Click/Subscribe)
+// Kode ini sama dengan yang kita sepakati sebelumnya, hanya disinkronkan ke ensureAuthenticated
+app.get("/task/verify/:taskId", ensureAuthenticated, async (req, res) => {
+    const taskId = req.params.taskId;
+    const userId = req.user.id;
+    
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        
+        // 1. Cek Tugas (Hanya yang bertipe 'link_click' dan 'active')
+        const taskRes = await client.query(
+            "SELECT reward, verification_url FROM tasks WHERE id = $1 AND status = 'active' AND task_type = 'link_click'", 
+            [taskId]
+        );
+        
+        if (taskRes.rows.length === 0) {
+            req.flash("error_msg", "Tugas tidak aktif, tidak ditemukan, atau memerlukan verifikasi manual.");
+            await client.query("COMMIT");
+            return res.redirect("/dashboard");
+        }
+        const task = taskRes.rows[0];
+
+        // 2. Cek apakah User sudah menyelesaikan Tugas (status 'approved' atau 'completed')
+        const completionRes = await client.query(
+            "SELECT 1 FROM task_completions WHERE user_id = $1 AND task_id = $2 AND (status = 'approved' OR status = 'completed')",
+            [userId, taskId]
+        );
+        if (completionRes.rows.length > 0) {
+            req.flash("warning_msg", "Anda sudah menyelesaikan tugas ini.");
+            await client.query("COMMIT");
+            return res.redirect(task.verification_url); 
+        }
+
+        // 3. LOGIKA PEMBERIAN POIN OTOMATIS
+        await client.query("UPDATE users SET points = points + $1 WHERE id = $2", [task.reward, userId]);
+        await client.query(
+            "INSERT INTO task_completions (user_id, task_id, status) VALUES ($1, $2, 'approved')", // Langsung set status 'approved'
+            [userId, taskId]
+        );
+        
+        await client.query("COMMIT");
+        
+        req.flash("success_msg", `Berhasil! Anda mendapatkan ${task.reward} Poin.`);
+        return res.redirect(task.verification_url); 
+
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("Error verifikasi tugas otomatis:", err);
+        req.flash("error_msg", "Terjadi kesalahan saat memproses tugas.");
+        return res.redirect("/dashboard");
+    } finally {
+        client.release();
+    }
 });
 
 // ROUTES VERIFKASI TUGAS //
@@ -559,93 +700,123 @@ app.post("/raffles/:id/join", ensureAuthenticated, async (req, res) => {
   }
 });
 
-// ROUTES : TUKAR-POINT ===============================//
-// Menampilkan halaman tukar poin
+// ================= ROUTES: TUKAR-POINT (FINAL) =================
+
+// Memproses form penukaran poin ke tiket raffle (FINAL FIX for GET route)
 app.get("/tukar-point", ensureAuthenticated, async (req, res) => {
+    let history = []; // Deklarasikan history
+    const client = await pool.connect();
+    
     try {
-        // Ambil riwayat poin untuk user yang sedang login
-        const historyRes = await pool.query(
-            "SELECT * FROM point_history WHERE user_id = $1 ORDER BY created_at DESC",
+        // Ambil riwayat poin untuk user yang sedang login (Hanya 5 item terbaru)
+        // Kita gunakan SELECT yang sudah dimodifikasi agar tidak crash jika 'reward' atau 'description' salah.
+        const historyRes = await client.query(
+            // Asumsi point_history punya kolom 'points' dan 'reward'
+            "SELECT created_at, reward, points FROM point_history WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5",
             [req.user.id]
         );
+        history = historyRes.rows;
 
+        // Render halaman dengan data yang aman
         res.render("tukar-point", {
             title: "Tukar Poin",
             user: req.user,
-            history: historyRes.rows // Kirim data riwayat ke EJS
+            history: history, // Array history yang sudah dibersihkan
+            // Kirim variabel fallback yang dibutuhkan oleh header/partial jika ada
+            wallets: [], 
+            selectedWallet: { currency: "IDR", balance: 0 }
         });
+        
     } catch (err) {
-        console.error("Error loading tukar-point page:", err);
-        req.flash("error_msg", "Gagal memuat halaman.");
+        // Jika terjadi error SQL, kita log dan redirect ke dashboard, TIDAK hang.
+        console.error("Error loading tukar-point page:", err.message);
+        req.flash("error_msg", "Gagal memuat halaman penukaran poin. Error DB.");
         res.redirect("/dashboard");
+    } finally {
+        client.release(); // PENTING: Pastikan client dilepaskan
     }
 });
 
-// Memproses form penukaran poin ke tiket raffle
+// Memproses form penukaran poin ke tiket raffle (FINAL FIX for POST route)
 app.post("/tukar-point", ensureAuthenticated, async (req, res) => {
-    const { jumlah } = req.body;
     const userId = req.user.id;
+    const { jumlah } = req.body;
     const pointsToExchange = parseInt(jumlah);
 
     // --- Validasi Input ---
-    if (!pointsToExchange || pointsToExchange < 100 || pointsToExchange % 100 !== 0) {
+    const rasioTiket = 100;
+    const ticketCount = pointsToExchange / rasioTiket;
+
+    if (!pointsToExchange || pointsToExchange < rasioTiket || pointsToExchange % rasioTiket !== 0) {
         req.flash("error_msg", "Jumlah poin harus dalam kelipatan 100.");
         return res.redirect("/tukar-point");
     }
 
     const client = await pool.connect();
     try {
-        // Cek apakah ada raffle yang aktif
+        await client.query("BEGIN"); // START TRANSAKSI
+
+        // 1. Cek Saldo dan Raffle Aktif
+        const userRes = await client.query("SELECT points FROM users WHERE id = $1 FOR UPDATE", [userId]);
+        const userPoints = parseInt(userRes.rows[0].points);
+        
+        if (userPoints < pointsToExchange) {
+            await client.query("ROLLBACK");
+            req.flash("error_msg", "Saldo poin tidak mencukupi.");
+            return res.redirect("/tukar-point");
+        }
+        
         const raffleRes = await client.query("SELECT id FROM raffles WHERE status = 'active' ORDER BY created_at DESC LIMIT 1");
         if (raffleRes.rows.length === 0) {
+            await client.query("ROLLBACK");
             req.flash("error_msg", "Saat ini tidak ada raffle yang aktif untuk diikuti.");
             return res.redirect("/tukar-point");
         }
         const raffleId = raffleRes.rows[0].id;
 
-        // Cek saldo poin pengguna
-        const userRes = await client.query("SELECT points FROM users WHERE id = $1", [userId]);
-        const userPoints = userRes.rows[0].points;
+        // 2. Ambil Nomor Tiket Terakhir
+        const lastTicketRes = await client.query(
+            "SELECT MAX(ticket_number) AS last_ticket FROM raffle_entries WHERE raffle_id=$1",
+            [raffleId]
+        );
+        let nextTicketNumber = (parseInt(lastTicketRes.rows[0].last_ticket) || 0) + 1;
         
-        if (userPoints < pointsToExchange) {
-            req.flash("error_msg", "Poin Anda tidak cukup untuk melakukan penukaran.");
-            return res.redirect("/tukar-point");
-        }
-
-        // --- Mulai Transaksi Database ---
-        await client.query("BEGIN");
-
-        // 1. Kurangi poin user
+        // 3. Kurangi Poin User (CRITICAL STEP)
         await client.query("UPDATE users SET points = points - $1 WHERE id = $2", [pointsToExchange, userId]);
         
-        // 2. Catat di riwayat poin
+        // 4. Catat di Riwayat Poin
         await client.query(
             "INSERT INTO point_history (user_id, reward, points, status) VALUES ($1, $2, $3, $4)",
             [userId, `Tukar ${pointsToExchange} poin ke tiket raffle`, -pointsToExchange, "success"]
         );
 
-        // 3. Buat tiket raffle sebanyak jumlah poin / 100
-        const ticketCount = pointsToExchange / 100;
+        // 5. Buat Tiket Raffle (Loop dan Insert) - Sinkronisasi Ticket Number
         for (let i = 0; i < ticketCount; i++) {
             await client.query(
-                "INSERT INTO raffle_entries (raffle_id, user_id) VALUES ($1, $2)",
-                [raffleId, userId]
+                "INSERT INTO raffle_entries (raffle_id, user_id, ticket_number) VALUES ($1, $2, $3)",
+                [raffleId, userId, nextTicketNumber]
             );
+            nextTicketNumber++; // WAJIB: Naikkan nomor tiket
         }
 
-        await client.query("COMMIT");
-        // --- Transaksi Selesai ---
+        await client.query("COMMIT"); // COMMIT TRANSAKSI
         
         req.flash("success_msg", `Berhasil menukar ${pointsToExchange} poin dengan ${ticketCount} tiket raffle!`);
         res.redirect("/tukar-point");
 
     } catch (err) {
-        await client.query("ROLLBACK");
-        console.error("Error exchanging points:", err);
-        req.flash("error_msg", "Terjadi kesalahan saat menukar poin.");
+        await client.query("ROLLBACK"); // ROLLBACK jika ada error SQL
+        console.error("Error transaksi penukaran poin:", err);
+        
+        // Cek error khusus Foreign Key (jika tabel tidak sinkron)
+        if (err.code === '23503') {
+            req.flash("error_msg", "Gagal menukar. Raffle atau User tidak valid.");
+        } else {
+            req.flash("error_msg", "Gagal memproses penukaran. Error sistem.");
+        }
         res.redirect("/tukar-point");
     } finally {
-        client.release();
+        client.release(); // PENTING: Lepaskan client database
     }
 });
 
@@ -695,37 +866,77 @@ app.post("/claim-code", ensureAuthenticated, async (req, res) => {
     client.release();
   }
 });
-// ================= ROUTES RIWAYAT ===============
+
+// ================= ROUTES RIWAYAT (FINAL FIX 2.0) =================
 
 app.get("/history", ensureAuthenticated, async (req, res) => {
-  try {
-    const historyRes = await pool.query(
-      "SELECT * FROM history WHERE user_id=$1 ORDER BY created_at DESC",
-      [req.user.id]
-    );
+    let history = [];
     
-    // ambil wallets agar header tidak error
-    const walletRes = await pool.query("SELECT * FROM users_wallet WHERE user_id=$1", [req.user.id]);
-    const wallets = walletRes.rows;
-    const selectedWallet = wallets[0] || { currency: "IDR", balance: 0 };
+    // Siapkan variabel fallback yang dibutuhkan
+    const wallets = []; 
+    const selectedWallet = { currency: "IDR", balance: 0 };
+    
+    try {
+        // Query Konsolidasi: Menggunakan UNION ALL untuk menggabungkan data
+        const consolidationQuery = `
+            -- 1. RIWAYAT PERUBAHAN POIN (PERBAIKAN: Menggunakan 'reward' sebagai 'description')
+            SELECT 
+                id, 
+                created_at, 
+                reward AS description, -- DIGANTI DARI 'description' ke 'reward'
+                points AS change_amount, 
+                'POINT' AS type
+            FROM point_history
+            WHERE user_id = $1
+            
+            UNION ALL
+            
+            -- 2. RIWAYAT PENYELESAIAN TUGAS
+            SELECT 
+                tc.id, 
+                tc.completed_at AS created_at, 
+                t.title AS description,
+                CASE 
+                    WHEN tc.status = 'approved' THEN t.reward
+                    ELSE 0 
+                END AS change_amount,
+                CASE 
+                    WHEN tc.status = 'approved' THEN 'TASK_APPROVED'
+                    WHEN tc.status = 'rejected' THEN 'TASK_REJECTED'
+                    ELSE 'TASK_PENDING'
+                END AS type
+            FROM task_completions tc
+            JOIN tasks t ON tc.task_id = t.id
+            WHERE tc.user_id = $1
+            
+            ORDER BY created_at DESC;
+        `;
+        
+        const historyRes = await pool.query(consolidationQuery, [req.user.id]);
+        history = historyRes.rows;
+
+    } catch (err) {
+        // Log ini adalah yang penting untuk debugging
+        console.error("History error (FINAL DIAGNOSIS):", err.message);
+        req.flash("error_msg", "Gagal memuat riwayat aktivitas. Cek log server.");
+        
+        // Tetap render dengan data kosong
+        return res.render("history", {
+            title: "Riwayat Aktivitas",
+            user: req.user,
+            history: [],
+            wallets: wallets,
+            selectedWallet: selectedWallet
+        });
+    }
 
     res.render("history", {
-      title: "Riwayat Aktivitas",
-      user: req.user,
-      history: historyRes.rows,
-      wallets: [], // biar header/wallet-overview tidak error
-      selectedWallet: { currency: "IDR", balance: 0 }
+        title: "Riwayat Aktivitas",
+        user: req.user,
+        history: history,
+        wallets: wallets,
+        selectedWallet: selectedWallet
     });
-  } catch (err) {
-    console.error("History error:", err);
-    res.render("history", {
-      title: "Riwayat Aktivitas",
-      user: req.user,
-      history: [],
-      wallets: [],
-      selectedWallet: { currency: "IDR", balance: 0 }
-    });
-  }
 });
 
 // ================= ROUTES: TIP ===================
@@ -818,142 +1029,257 @@ app.post("/tip", ensureAuthenticated, async (req, res) => {
 });
 
 // ================= ROUTES: ADMIN =================
-
-// redirect /admin -> /admin/dashboard
+// ROUTE 1: REDIRECT /admin -> /admin/dashboard
+// Ini mengarahkan user dari URL pendek /admin ke dashboard utama.
 app.get("/admin", requireAdmin, (req, res) => {
-  res.redirect("/admin/dashboard");
+    // Pastikan user adalah admin, lalu redirect
+    res.redirect("/admin/dashboard");
 });
 
-// Dashboard
+// Dashboard Utama
+
 app.get("/admin/dashboard", requireAdmin, async (req, res) => {
-  try {
-    const totalUsers = await pool.query("SELECT COUNT(*) FROM users");
-    const activeTasks = await pool.query("SELECT COUNT(*) FROM tasks WHERE status='active'");
-    const activeRaffles = await pool.query("SELECT COUNT(*) FROM raffles WHERE status='active'");
-    const totalWallets = await pool.query("SELECT COUNT(*) FROM users_wallet");
-
+    let stats = { totalUsers: 0, activeTasks: 0, activeRaffles: 0, totalWallets: 0 };
     let recentActivity = { rows: [] };
+    
     try {
-      recentActivity = await pool.query(
-        "SELECT description, created_at FROM activity_log ORDER BY created_at DESC LIMIT 5"
-      );
+        // Fetch semua data count
+        const totalUsersRes = await pool.query("SELECT COUNT(*) FROM users");
+        const activeTasksRes = await pool.query("SELECT COUNT(*) FROM tasks WHERE status='active'");
+        const activeRafflesRes = await pool.query("SELECT COUNT(*) FROM raffles WHERE status='active'");
+        const totalWalletsRes = await pool.query("SELECT COUNT(*) FROM users_wallet");
+
+        // Simpan hasil ke objek stats
+        stats = {
+            totalUsers: totalUsersRes.rows[0].count,
+            activeTasks: activeTasksRes.rows[0].count,
+            activeRaffles: activeRafflesRes.rows[0].count,
+            totalWallets: totalWalletsRes.rows[0].count,
+        };
+
+        // Ambil aktivitas terbaru
+        try {
+            recentActivity = await pool.query(
+                "SELECT description, created_at FROM activity_log ORDER BY created_at DESC LIMIT 5"
+            );
+        } catch (err) {
+            console.warn("activity_log table not found, skip recentActivity");
+        }
+
+        res.render("admin/dashboard", {
+            title: "Dashboard",
+            user: req.user,
+            stats: stats, // Objek stats dikirim
+            recentActivity: recentActivity.rows,
+        });
+
     } catch (err) {
-      console.warn("activity_log table not found, skip recentActivity");
+        console.error("dashboard error:", err);
+        // Jika ada error DB, tetap render dengan nilai default (0)
+        res.render("admin/dashboard", {
+            title: "Admin Dashboard",
+            user: req.user,
+            stats: stats, // Objek stats default dikirim
+            recentActivity: [],
+        });
     }
-
-    res.render("admin/dashboard", {
-      title: "Admin Dashboard",
-      user: req.user,
-      stats: {
-        totalUsers: totalUsers.rows[0].count,
-        activeTasks: activeTasks.rows[0].count,
-        activeRaffles: activeRaffles.rows[0].count,
-        totalWallets: totalWallets.rows[0].count,
-      },
-      recentActivity: recentActivity.rows,
-    });
-  } catch (err) {
-    console.error("Admin dashboard error:", err);
-    res.render("admin/dashboard", {
-      title: "Admin Dashboard",
-      user: req.user,
-      stats: { totalUsers: 0, activeTasks: 0, activeRaffles: 0, totalWallets: 0 },
-      recentActivity: [],
-    });
-  }
 });
 
-// ================= ROUTES: ADMIN TASKS =================
+// ================= ROUTES: ADMIN USER MANAGEMENT =================
 
-// Daftar tugas
+// ROUTE 1: GET /admin/users (Menampilkan Daftar User)
+app.get("/admin/users", requireAdmin, async (req, res) => {
+    try {
+        const usersRes = await pool.query(
+            "SELECT id, username, email, points, created_at, is_banned FROM users ORDER BY created_at DESC"
+        );
+        res.render("admin/users", {
+            title: "Kelola Pengguna",
+            user: req.user,
+            users: usersRes.rows,
+        });
+    } catch (err) {
+        console.error("Admin users error:", err);
+        req.flash("error_msg", "Gagal memuat daftar pengguna.");
+        res.redirect("/admin/dashboard");
+    }
+});
+
+// ROUTE 2: POST /admin/user/tip-point (Memberi/Mengurangi Poin)
+app.post("/admin/user/:id/tip-point", requireAdmin, async (req, res) => {
+    const userId = req.params.id;
+    const { amount } = req.body;
+    const amountInt = parseInt(amount);
+
+    if (isNaN(amountInt) || amountInt === 0) {
+        req.flash("error_msg", "Jumlah poin tidak valid.");
+        return res.redirect("/admin/users");
+    }
+
+    try {
+        await pool.query(
+            "UPDATE users SET points = points + $1 WHERE id = $2",
+            [amountInt, userId]
+        );
+        req.flash("success_msg", `Berhasil ${amountInt > 0 ? 'menambahkan' : 'mengurangi'} ${Math.abs(amountInt)} poin.`);
+        res.redirect("/admin/users");
+    } catch (err) {
+        console.error("Tip point error:", err);
+        req.flash("error_msg", "Gagal memperbarui poin.");
+        res.redirect("/admin/users");
+    }
+});
+
+// ROUTE 3: POST /admin/user/ban (Ban/Unban User)
+app.post("/admin/user/:id/ban", requireAdmin, async (req, res) => {
+    const userId = req.params.id;
+    const { action } = req.body; // 'ban' atau 'unban'
+    const isBanned = (action === 'ban');
+
+    try {
+        await pool.query(
+            "UPDATE users SET is_banned = $1 WHERE id = $2",
+            [isBanned, userId]
+        );
+        req.flash("success_msg", `Pengguna berhasil di${action}d.`);
+        res.redirect("/admin/users");
+    } catch (err) {
+        console.error("Ban user error:", err);
+        req.flash("error_msg", "Gagal memperbarui status ban.");
+        res.redirect("/admin/users");
+    }
+});
+
+// Catatan: Route Kirim Message membutuhkan integrasi sistem chat/DM yang lebih kompleks (di luar scope awal ini). 
+// Untuk saat ini, kita fokus pada fitur Poin dan Banned.
+
+// ================= ROUTES: ADMIN TASKS (FINAL) =================
+
+// ROUTE 1: Daftar tugas (READ) - Memastikan semua kolom diambil
 app.get("/admin/tasks", requireAdmin, async (req, res) => {
-  try {
-    const tasksRes = await pool.query("SELECT * FROM tasks ORDER BY created_at DESC");
-    res.render("admin/tasks", {
-      title: "Kelola Tugas",
-      user: req.user,
-      tasks: tasksRes.rows
-    });
-  } catch (err) {
-    console.error("Admin tasks error:", err);
-    res.render("admin/tasks", { title: "Kelola Tugas", user: req.user, tasks: [] });
-  }
-});
-
-// Form tambah tugas
-app.get("/admin/tasks/new", requireAdmin, (req, res) => {
-  res.render("admin/tasks-form", {
-    title: "Tambah Tugas",
-    user: req.user,
-    task: null // kosong karena tambah baru
-  });
-});
-
-// Proses tambah tugas
-app.post("/admin/tasks/new", requireAdmin, async (req, res) => {
-  const { title, description, reward, status } = req.body;
-  try {
-    await pool.query(
-      "INSERT INTO tasks (title, description, reward, status) VALUES ($1,$2,$3,$4)",
-      [title, description, reward, status]
-    );
-    req.flash("success_msg", "Tugas berhasil ditambahkan.");
-    res.redirect("/admin/tasks");
-  } catch (err) {
-    console.error("Tambah tugas error:", err);
-    req.flash("error_msg", "Gagal menambahkan tugas.");
-    res.redirect("/admin/tasks");
-  }
-});
-
-// Form edit tugas
-app.get("/admin/tasks/:id/edit", requireAdmin, async (req, res) => {
-  try {
-    const taskRes = await pool.query("SELECT * FROM tasks WHERE id=$1", [req.params.id]);
-    if (taskRes.rows.length === 0) {
-      req.flash("error_msg", "Tugas tidak ditemukan.");
-      return res.redirect("/admin/tasks");
+    try {
+        // Ambil semua kolom, termasuk kolom baru untuk ditampilkan di EJS
+        const tasksRes = await pool.query(
+            "SELECT id, title, description, reward, status, created_at, task_type, verification_url FROM tasks ORDER BY created_at DESC"
+        );
+        res.render("admin/tasks", {
+            title: "Kelola Tugas",
+            user: req.user,
+            tasks: tasksRes.rows
+        });
+    } catch (err) {
+        console.error("Admin tasks READ error:", err.message);
+        // Penting: Jika terjadi error SQL, kita hanya render array kosong
+        req.flash("error_msg", "Gagal memuat daftar tugas. Pastikan kolom DB sudah lengkap.");
+        res.render("admin/tasks", { title: "Kelola Tugas", user: req.user, tasks: [] });
     }
+});
+
+// ROUTE 2: Form tambah tugas (GET NEW)
+app.get("/admin/tasks/new", requireAdmin, (req, res) => {
     res.render("admin/tasks-form", {
-      title: "Edit Tugas",
-      user: req.user,
-      task: taskRes.rows[0]
+        title: "Tambah Tugas",
+        user: req.user,
+        task: null
     });
-  } catch (err) {
-    console.error("Edit tugas error:", err);
-    req.flash("error_msg", "Gagal memuat form edit tugas.");
-    res.redirect("/admin/tasks");
-  }
 });
 
-// Proses edit tugas
+// ROUTE 3: Proses tambah tugas (CREATE) - Menangani nilai NULL/default
+app.post("/admin/tasks/new", requireAdmin, async (req, res) => {
+    // Ambil semua data dari form
+    const { title, description, reward, status, task_type, verification_url } = req.body;
+
+    // Set nilai default/NULL yang diperlukan PostgreSQL
+    const finalTaskType = task_type || 'manual'; // Default ke 'manual' jika kosong
+    // Jika verification_url kosong di form, kirim NULL ke DB (penting)
+    const finalVerificationUrl = verification_url || null; 
+
+    try {
+        await pool.query(
+            "INSERT INTO tasks (title, description, reward, status, task_type, verification_url) VALUES ($1, $2, $3, $4, $5, $6)",
+            [title, description, reward, status, finalTaskType, finalVerificationUrl]
+        );
+        req.flash("success_msg", "Tugas berhasil ditambahkan.");
+        res.redirect("/admin/tasks");
+    } catch (err) {
+        console.error("Tambah tugas error:", err.message);
+        req.flash("error_msg", "Gagal menambahkan tugas. Error SQL: " + err.message);
+        res.redirect("/admin/tasks/new");
+    }
+});
+
+// ROUTE 4: Form edit tugas (GET EDIT) - Mengambil kolom baru
+app.get("/admin/tasks/:id/edit", requireAdmin, async (req, res) => {
+    try {
+        const taskRes = await pool.query("SELECT * FROM tasks WHERE id=$1", [req.params.id]);
+        if (taskRes.rows.length === 0) {
+            req.flash("error_msg", "Tugas tidak ditemukan.");
+            return res.redirect("/admin/tasks");
+        }
+        res.render("admin/tasks-form", {
+            title: "Edit Tugas",
+            user: req.user,
+            task: taskRes.rows[0]
+        });
+    } catch (err) {
+        console.error("Edit tugas error:", err.message);
+        req.flash("error_msg", "Gagal memuat form edit tugas.");
+        res.redirect("/admin/tasks");
+    }
+});
+
+// ROUTE 5: Proses edit tugas (UPDATE) - Memperbarui kolom baru
 app.post("/admin/tasks/:id/edit", requireAdmin, async (req, res) => {
-  const { title, description, reward, status } = req.body;
-  try {
-    await pool.query(
-      "UPDATE tasks SET title=$1, description=$2, reward=$3, status=$4 WHERE id=$5",
-      [title, description, reward, status, req.params.id]
-    );
-    req.flash("success_msg", "Tugas berhasil diperbarui.");
-    res.redirect("/admin/tasks");
-  } catch (err) {
-    console.error("Update tugas error:", err);
-    req.flash("error_msg", "Gagal memperbarui tugas.");
-    res.redirect("/admin/tasks");
-  }
+    const { title, description, reward, status, task_type, verification_url } = req.body;
+
+    const finalTaskType = task_type || 'manual';
+    const finalVerificationUrl = verification_url || null; 
+    
+    try {
+        await pool.query(
+            "UPDATE tasks SET title=$1, description=$2, reward=$3, status=$4, task_type=$5, verification_url=$6 WHERE id=$7",
+            [title, description, reward, status, finalTaskType, finalVerificationUrl, req.params.id]
+        );
+        req.flash("success_msg", "Tugas berhasil diperbarui.");
+        res.redirect("/admin/tasks");
+    } catch (err) {
+        console.error("Update tugas error:", err.message);
+        req.flash("error_msg", "Gagal memperbarui tugas.");
+        res.redirect(`/admin/tasks/${req.params.id}/edit`);
+    }
 });
 
-// Hapus tugas
+// ROUTE 6: Hapus tugas (DELETE)
+// POST: Hapus tugas (DELETE)
 app.post("/admin/tasks/:id/delete", requireAdmin, async (req, res) => {
-  try {
-    await pool.query("DELETE FROM tasks WHERE id=$1", [req.params.id]);
-    req.flash("success_msg", "Tugas berhasil dihapus.");
-    res.redirect("/admin/tasks");
-  } catch (err) {
-    console.error("Hapus tugas error:", err);
-    req.flash("error_msg", "Gagal menghapus tugas.");
-    res.redirect("/admin/tasks");
-  }
+    const client = await pool.connect(); // Menggunakan client untuk transaksi
+    
+    try {
+        await client.query("BEGIN"); // Mulai transaksi
+        
+        const taskId = req.params.id;
+
+        // LANGKAH 1: Hapus semua entri penyelesaian tugas (task_completions)
+        await client.query("DELETE FROM task_completions WHERE task_id = $1", [taskId]); 
+
+        // LANGKAH 2: Hapus tugas utama (tasks)
+        await client.query("DELETE FROM tasks WHERE id = $1", [taskId]);
+        
+        await client.query("COMMIT"); // Selesaikan transaksi
+        
+        req.flash("success_msg", "Tugas berhasil dihapus secara keseluruhan.");
+        res.redirect("/admin/tasks");
+    } catch (err) {
+        await client.query("ROLLBACK"); // Batalkan jika terjadi error
+        console.error("Hapus tugas error:", err.message);
+        
+        // Peringatan: Error ini mungkin terjadi jika ada Foreign Key lain yang merujuk ke 'tasks' 
+        // selain task_completions yang belum kita ketahui.
+        req.flash("error_msg", "Gagal menghapus tugas. Data tugas mungkin masih terikat.");
+        res.redirect("/admin/tasks");
+    } finally {
+        client.release(); // Selalu bebaskan client
+    }
 });
 
 // ============= LIVE STREAM ROUTES =================
@@ -1076,18 +1402,19 @@ app.post('/admin/worker/stop', requireAdmin, (req, res) => {
     });
 });
 
-// ================= ROUTES: ADMIN RAFFLES =================
+// ================= ROUTES: ADMIN RAFFLES (MANUAL WINNER SELECTION) =================
 
-// READ: Menampilkan daftar semua raffles + Jumlah Peserta
+// ROUTE 1: GET /admin/raffles (READ: Menampilkan daftar semua raffles + Peserta + Pemenang)
 app.get("/admin/raffles", requireAdmin, async (req, res) => {
     try {
         const query = `
             SELECT 
                 r.id, r.title, r.reward, r.status, r.draw_date, r.created_at,
-                COUNT(re.id) AS total_entries  -- Menghitung jumlah peserta
+                r.winner_username, -- Ambil username pemenang untuk ditampilkan
+                COUNT(re.id) AS total_entries 
             FROM raffles r
             LEFT JOIN raffle_entries re ON r.id = re.raffle_id
-            GROUP BY r.id, r.title, r.reward, r.status, r.draw_date, r.created_at
+            GROUP BY r.id, r.title, r.reward, r.status, r.draw_date, r.created_at, r.winner_username
             ORDER BY r.created_at DESC
         `;
         const rafflesRes = await pool.query(query);
@@ -1099,7 +1426,7 @@ app.get("/admin/raffles", requireAdmin, async (req, res) => {
         });
     } catch (err) {
         console.error("Admin raffles error:", err);
-        // Tetap render halaman meskipun ada error database
+        req.flash("error_msg", "Gagal memuat daftar raffle.");
         res.render("admin/raffles", {
             title: "Kelola Raffles",
             user: req.user,
@@ -1108,7 +1435,160 @@ app.get("/admin/raffles", requireAdmin, async (req, res) => {
     }
 });
 
-// GET: Menampilkan Daftar Peserta untuk Raffle Tertentu
+// ROUTE 2: GET /admin/raffles/:id/select-winner (Menampilkan halaman form pemilihan pemenang)
+app.get("/admin/raffles/:id/select-winner", requireAdmin, async (req, res) => {
+    const raffleId = req.params.id;
+    try {
+        const raffleRes = await pool.query("SELECT id, title, status FROM raffles WHERE id = $1", [raffleId]);
+        if (raffleRes.rows.length === 0) {
+            req.flash("error_msg", "Raffle tidak ditemukan.");
+            return res.redirect("/admin/raffles");
+        }
+        const raffle = raffleRes.rows[0];
+
+        if (raffle.status === 'drawn') {
+            req.flash("error_msg", "Raffle ini sudah diundi/ditentukan pemenangnya.");
+            return res.redirect("/admin/raffles");
+        }
+
+        const entriesQuery = `
+            SELECT 
+                u.id AS user_id, u.username, u.email, re.entry_time
+            FROM raffle_entries re
+            JOIN users u ON re.user_id = u.id
+            WHERE re.raffle_id = $1
+            ORDER BY u.username ASC
+        `;
+        const entriesRes = await pool.query(entriesQuery, [raffleId]);
+
+        res.render("admin/select-winner", { // Membutuhkan file EJS baru: views/admin/select-winner.ejs
+            title: `Pilih Pemenang: ${raffle.title}`,
+            user: req.user,
+            raffleId: raffleId,
+            raffleTitle: raffle.title,
+            entries: entriesRes.rows,
+        });
+    } catch (err) {
+        console.error("Select winner page error:", err);
+        req.flash("error_msg", "Gagal memuat halaman pemilihan pemenang.");
+        res.redirect("/admin/raffles");
+    }
+});
+
+// ROUTE BARU: GET /admin/raffles/:id/edit (Menampilkan form edit)
+app.get("/admin/raffles/:id/edit", requireAdmin, async (req, res) => {
+    const raffleId = req.params.id;
+    try {
+        // Ambil data raffle dari database
+        const raffleRes = await pool.query("SELECT * FROM raffles WHERE id = $1", [raffleId]);
+
+        if (raffleRes.rows.length === 0) {
+            req.flash("error_msg", "Raffle tidak ditemukan.");
+            return res.redirect("/admin/raffles");
+        }
+
+        // Render form edit dengan data raffle yang ada
+        res.render("admin/edit-raffle", {
+            title: "Edit Raffle",
+            user: req.user,
+            raffle: raffleRes.rows[0], // Mengirim data raffle
+        });
+    } catch (err) {
+        console.error("Get edit raffle error:", err);
+        req.flash("error_msg", "Gagal memuat data raffle untuk diedit.");
+        res.redirect("/admin/raffles");
+    }
+});
+
+// ROUTE EXISTING: POST /admin/raffles/:id/edit (Memproses submit form)
+app.post("/admin/raffles/:id/edit", requireAdmin, async (req, res) => {
+    // ... (kode Anda yang sudah ada di sini)
+    // ...
+});
+
+// ROUTE 3: POST /admin/raffles/:id/set-winner (Menyimpan pemenang yang dipilih secara manual)
+app.post("/admin/raffles/:id/set-winner", requireAdmin, async (req, res) => {
+    const raffleId = req.params.id;
+    const { winner_id } = req.body;
+
+    if (!winner_id) {
+        req.flash("error_msg", "ID pemenang harus dipilih.");
+        return res.redirect(`/admin/raffles/${raffleId}/select-winner`);
+    }
+
+    try {
+        // Ambil username pemenang
+        const winnerUserRes = await pool.query("SELECT username FROM users WHERE id = $1", [winner_id]);
+        if (winnerUserRes.rows.length === 0) {
+            req.flash("error_msg", "User ID pemenang tidak valid.");
+            return res.redirect(`/admin/raffles/${raffleId}/select-winner`);
+        }
+        const winnerUsername = winnerUserRes.rows[0].username;
+
+        // Update status raffle di database (status=drawn, simpan winner_id dan username)
+        await pool.query(
+            "UPDATE raffles SET status = 'drawn', winner_id = $1, winner_username = $2, draw_date = NOW() WHERE id = $3",
+            [winner_id, winnerUsername, raffleId]
+        );
+
+        req.flash("success_msg", `Pemenang Raffle berhasil ditentukan secara manual: ${winnerUsername}`);
+        res.redirect("/admin/raffles");
+    } catch (err) {
+        console.error("Set winner error:", err);
+        req.flash("error_msg", "Gagal menetapkan pemenang.");
+        res.redirect("/admin/raffles");
+    }
+});
+
+
+// ROUTE 4: POST /admin/raffles/new (CREATE: Tambah raffle)
+app.post("/admin/raffles/new", requireAdmin, async (req, res) => {
+    const { title, reward, status, draw_date } = req.body;
+    try {
+        await pool.query(
+            "INSERT INTO raffles (title, reward, status, draw_date) VALUES ($1,$2,$3,$4)",
+            [title, reward, status, draw_date]
+        );
+        req.flash("success_msg", "Raffle berhasil ditambahkan.");
+        res.redirect("/admin/raffles");
+    } catch (err) {
+        console.error("Tambah raffle error:", err);
+        req.flash("error_msg", "Gagal menambahkan raffle.");
+        res.redirect("/admin/raffles");
+    }
+});
+
+// ROUTE 5: POST /admin/raffles/:id/edit (UPDATE: Edit raffle)
+app.post("/admin/raffles/:id/edit", requireAdmin, async (req, res) => {
+    const { title, reward, status, draw_date } = req.body;
+    try {
+        await pool.query(
+            "UPDATE raffles SET title=$1, reward=$2, status=$3, draw_date=$4 WHERE id=$5",
+            [title, reward, status, draw_date, req.params.id]
+        );
+        req.flash("success_msg", "Raffle berhasil diperbarui.");
+        res.redirect("/admin/raffles");
+    } catch (err) {
+        console.error("Edit raffle error:", err);
+        req.flash("error_msg", "Gagal memperbarui raffle.");
+        res.redirect("/admin/raffles");
+    }
+});
+
+// ROUTE 6: POST /admin/raffles/:id/delete (DELETE: Hapus raffle)
+app.post("/admin/raffles/:id/delete", requireAdmin, async (req, res) => {
+    try {
+        await pool.query("DELETE FROM raffles WHERE id=$1", [req.params.id]);
+        req.flash("success_msg", "Raffle berhasil dihapus.");
+        res.redirect("/admin/raffles");
+    } catch (err) {
+        console.error("Hapus raffle error:", err);
+        req.flash("error_msg", "Gagal menghapus raffle.");
+        res.redirect("/admin/raffles");
+    }
+});
+
+// ROUTE 7: GET /admin/raffles/:id/entries (Menampilkan Daftar Peserta)
 app.get("/admin/raffles/:id/entries", requireAdmin, async (req, res) => {
     const raffleId = req.params.id;
     try {
@@ -1138,176 +1618,226 @@ app.get("/admin/raffles/:id/entries", requireAdmin, async (req, res) => {
     }
 });
 
-
-// Tambah raffle (Tidak Ada Perubahan)
-app.post("/admin/raffles/new", requireAdmin, async (req, res) => {
-    const { title, reward, status, draw_date } = req.body;
-    try {
-        await pool.query(
-            "INSERT INTO raffles (title, reward, status, draw_date) VALUES ($1,$2,$3,$4)",
-            [title, reward, status, draw_date]
-        );
-        req.flash("success_msg", "Raffle berhasil ditambahkan.");
-        res.redirect("/admin/raffles");
-    } catch (err) {
-        console.error("Tambah raffle error:", err);
-        req.flash("error_msg", "Gagal menambahkan raffle.");
-        res.redirect("/admin/raffles");
-    }
-});
-
-// Edit raffle (Tidak Ada Perubahan)
-app.post("/admin/raffles/:id/edit", requireAdmin, async (req, res) => {
-    const { title, reward, status, draw_date } = req.body;
-    try {
-        await pool.query(
-            "UPDATE raffles SET title=$1, reward=$2, status=$3, draw_date=$4 WHERE id=$5",
-            [title, reward, status, draw_date, req.params.id]
-        );
-        req.flash("success_msg", "Raffle berhasil diperbarui.");
-        res.redirect("/admin/raffles");
-    } catch (err) {
-        console.error("Edit raffle error:", err);
-        req.flash("error_msg", "Gagal memperbarui raffle.");
-        res.redirect("/admin/raffles");
-    }
-});
-
-// Hapus raffle (Tidak Ada Perubahan)
-app.post("/admin/raffles/:id/delete", requireAdmin, async (req, res) => {
-    try {
-        await pool.query("DELETE FROM raffles WHERE id=$1", [req.params.id]);
-        req.flash("success_msg", "Raffle berhasil dihapus.");
-        res.redirect("/admin/raffles");
-    } catch (err) {
-        console.error("Hapus raffle error:", err);
-        req.flash("error_msg", "Gagal menghapus raffle.");
-        res.redirect("/admin/raffles");
-    }
-});
-
 // ================ ROUTES ADMIN CLAIM CODE ====================
-// GET: Menampilkan halaman Kelola Claim Code
+
+// GET: Menampilkan halaman Kelola Claim Code (READ)
 app.get("/admin/claim-code", requireAdmin, async (req, res) => {
-  try {
-    // Query ini mengambil semua kode dan juga mengecek apakah sudah pernah dipakai.
-     const codesRes = await pool.query(`
-      SELECT 
-        cc.id,
-        cc.code,
-        cc.reward AS points, -- Ubah nama kolom 'reward' menjadi 'points' saat query
-        cc.status,
-        cc.created_at,
-        EXISTS (SELECT 1 FROM claim_code_redemptions ccr WHERE ccr.code_id = cc.id) as redeemed
-      FROM claim_codes cc 
-      ORDER BY cc.created_at DESC
-    `);
-
-    res.render("admin/claim-code", {
-      title: "Kelola Claim Code",
-      user: req.user,
-      codes: codesRes.rows,
-    });
-  } catch (err) {
-    console.error("Admin claim-code error:", err);
-    res.render("admin/claim-code", { 
-      title: "Kelola Claim Code", 
-      user: req.user, 
-      codes: [] 
-    });
-  }
-});
-
-// POST: Membuat Claim Code baru (dengan logging untuk debug)
-app.post("/admin/claim-code/new", requireAdmin, async (req, res) => {
-  console.log('--- Menerima request untuk menambah claim code ---');
-  console.log('Data dari form (req.body):', req.body); // LOG 1: Lihat data mentah dari form
-
-  // Ambil 'points' dari req.body, sesuai dengan nama input di form
-  const { code } = req.body;
-  const points = parseInt(req.body.points); // LOG 2: Pastikan points adalah angka
-  
-  console.log(`Data yang diproses: Code = ${code}, Points = ${points}`);
-
-  if (!code || !points || isNaN(points)) {
-    console.log('Validasi gagal: Kode atau Poin kosong atau bukan angka.');
-    req.flash("error_msg", "Kode dan Poin harus diisi dengan benar.");
-    return res.redirect("/admin/claim-code");
-  }
-
-  try {
-    console.log('Mencoba memasukkan data ke database...');
-    await pool.query(
-      "INSERT INTO claim_codes (code, reward) VALUES ($1, $2)",
-      [code.toUpperCase(), points] 
-    );
-    console.log('>>> SUKSES: Data berhasil dimasukkan.');
-    req.flash("success_msg", "Claim code baru berhasil ditambahkan.");
-    res.redirect("/admin/claim-code");
-  } catch (err) {
-    // LOG 3: Ini adalah bagian paling penting jika terjadi error
-    console.error("!!! GAGAL: Terjadi error saat query database:", err); 
-    
-    if (err.code === '23505') {
-        req.flash("error_msg", `Gagal: Kode '${code.toUpperCase()}' sudah ada.`);
-    } else {
-        req.flash("error_msg", "Gagal menambahkan claim code. Cek konsol server untuk detail.");
-    }
-    res.redirect("/admin/claim-code");
-  }
-});
-
-// POST: Menghapus Claim Code
-app.post("/admin/claim-code/:id/delete", requireAdmin, async (req, res) => {
-  const { id } = req.params;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    // Hapus dulu riwayat pemakaiannya (jika ada)
-    await client.query("DELETE FROM claim_code_redemptions WHERE code_id = $1", [id]);
-    // Baru hapus kode utamanya
-    await client.query("DELETE FROM claim_codes WHERE id = $1", [id]);
-    await client.query("COMMIT");
-
-    req.flash("success_msg", "Claim code berhasil dihapus.");
-    res.redirect("/admin/claim-code");
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("Error menghapus claim code:", err);
-    req.flash("error_msg", "Gagal menghapus claim code.");
-    res.redirect("/admin/claim-code");
-  } finally {
-    client.release();
-  }
-});
-
-// VERIFICATION ADMIN TASK //
-// --- Rute Admin untuk Verifikasi ---
-app.get("/admin/verifications", requireAdmin, async (req, res) => {
     try {
-        const submissionsRes = await pool.query(`
+        // Query ini sekarang mengambil semua kolom baru dan menghitung total klaim (redeemed_count)
+        const query = `
             SELECT 
-                tc.id, 
-                u.username, 
-                t.title as task_title, 
-                tc.proof_data, 
-                tc.completed_at
-            FROM task_completions tc
-            JOIN users u ON tc.user_id = u.id
-            JOIN tasks t ON tc.task_id = t.id
-            WHERE tc.status = 'pending'
-            ORDER BY tc.completed_at ASC
-        `);
-        
-        res.render("admin/verifications", {
-            title: "Verifikasi Tugas",
+                cc.id,
+                cc.code,
+                cc.reward AS points,
+                cc.status,
+                cc.created_at,
+                cc.expiry_date, 
+                cc.max_claims,
+                -- Menghitung jumlah klaim berdasarkan tabel claim_code_redemptions
+                COALESCE(COUNT(ccr.id), 0) AS redeemed_count
+            FROM claim_codes cc 
+            LEFT JOIN claim_code_redemptions ccr ON cc.id = ccr.code_id
+            GROUP BY cc.id, cc.code, cc.reward, cc.status, cc.created_at, cc.expiry_date, cc.max_claims
+            ORDER BY cc.created_at DESC
+        `;
+        const codesRes = await pool.query(query);
+
+        res.render("admin/claim-code", {
+            title: "Kelola Claim Code",
             user: req.user,
-            submissions: submissionsRes.rows
+            codes: codesRes.rows,
         });
     } catch (err) {
-        console.error("Admin verifications error:", err);
-        req.flash("error_msg", "Gagal memuat halaman verifikasi.");
-        res.redirect("/admin/dashboard");
+        console.error("Admin claim-code error:", err);
+        req.flash("error_msg", "Gagal memuat daftar kode.");
+        res.render("admin/claim-code", { 
+            title: "Kelola Claim Code", 
+            user: req.user, 
+            codes: [] 
+        });
+    }
+});
+
+// POST: Membuat Claim Code baru (CREATE)
+app.post("/admin/claim-code/new", requireAdmin, async (req, res) => {
+    // Ambil semua field baru dari form
+    const { code, expiry_date, max_claims } = req.body; 
+    const points = parseInt(req.body.points);
+    
+    // Validasi dan konversi data baru
+    const maxClaimsInt = parseInt(max_claims) || 0;
+    // Gunakan null jika tanggal kosong, jika tidak, konversi ke objek Date
+    const expiryDateObj = expiry_date ? new Date(expiry_date) : null; 
+
+    if (!code || !points || isNaN(points)) {
+        req.flash("error_msg", "Kode dan Poin harus diisi dengan benar.");
+        return res.redirect("/admin/claim-code");
+    }
+
+    try {
+        await pool.query(
+            // UPDATE: Tambahkan expiry_date dan max_claims ke query INSERT
+            "INSERT INTO claim_codes (code, reward, expiry_date, max_claims) VALUES ($1, $2, $3, $4)",
+            [code.toUpperCase(), points, expiryDateObj, maxClaimsInt] 
+        );
+        req.flash("success_msg", "Claim code baru berhasil ditambahkan.");
+        res.redirect("/admin/claim-code");
+    } catch (err) {
+        console.error("!!! GAGAL: Terjadi error saat query database:", err); 
+        
+        if (err.code === '23505') {
+            req.flash("error_msg", `Gagal: Kode '${code.toUpperCase()}' sudah ada.`);
+        } else {
+            req.flash("error_msg", "Gagal menambahkan claim code. Cek konsol server untuk detail.");
+        }
+        res.redirect("/admin/claim-code");
+    }
+});
+
+// POST: Menghapus Claim Code (DELETE)
+app.post("/admin/claim-code/:id/delete", requireAdmin, async (req, res) => {
+    const { id } = req.params;
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        // Hapus riwayat pemakaiannya (penting untuk integrity)
+        await client.query("DELETE FROM claim_code_redemptions WHERE code_id = $1", [id]);
+        // Hapus kode utamanya
+        await client.query("DELETE FROM claim_codes WHERE id = $1", [id]);
+        await client.query("COMMIT");
+
+        req.flash("success_msg", "Claim code berhasil dihapus.");
+        res.redirect("/admin/claim-code");
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("Error menghapus claim code:", err);
+        req.flash("error_msg", "Gagal menghapus claim code.");
+        res.redirect("/admin/claim-code");
+    } finally {
+        client.release();
+    }
+});
+
+//VERIF MANUAL & OTOMATIS TASKS ROUTES//
+// POST: Menyetujui pengajuan tugas (Approve)
+app.post("/admin/verifications/:submissionId/approve", requireAdmin, async (req, res) => {
+    const submissionId = req.params.submissionId;
+    const client = await pool.connect();
+    
+    try {
+        await client.query("BEGIN");
+        
+        // 1. Ambil detail pengajuan untuk mendapatkan user_id dan reward
+        const submissionRes = await client.query(`
+            SELECT 
+                tc.user_id, 
+                t.reward 
+            FROM task_completions tc
+            JOIN tasks t ON tc.task_id = t.id
+            WHERE tc.id = $1 AND tc.status = 'pending'
+        `, [submissionId]);
+
+        if (submissionRes.rows.length === 0) {
+            await client.query("COMMIT");
+            req.flash("error_msg", "Pengajuan tidak ditemukan atau sudah diverifikasi.");
+            return res.redirect("/admin/verifications");
+        }
+        
+        const { user_id, reward } = submissionRes.rows[0];
+
+        // 2. Beri Poin kepada Pengguna
+        await client.query("UPDATE users SET points = points + $1 WHERE id = $2", [reward, user_id]);
+        
+        // 3. Tandai pengajuan sebagai 'approved'
+        await client.query("UPDATE task_completions SET status = 'approved' WHERE id = $1", [submissionId]);
+        
+        await client.query("COMMIT");
+
+        req.flash("success_msg", `Tugas berhasil disetujui! +${reward} Poin diberikan.`);
+        res.redirect("/admin/verifications");
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("Approve task error:", err);
+        req.flash("error_msg", "Gagal menyetujui tugas.");
+        res.redirect("/admin/verifications");
+    } finally {
+        client.release();
+    }
+});
+
+// POST: Menolak pengajuan tugas (Reject)
+app.post("/admin/verifications/:submissionId/reject", requireAdmin, async (req, res) => {
+    const submissionId = req.params.submissionId;
+    try {
+        // Tandai pengajuan sebagai 'rejected'
+        await pool.query("UPDATE task_completions SET status = 'rejected' WHERE id = $1", [submissionId]);
+        
+        req.flash("warning_msg", "Pengajuan tugas berhasil ditolak.");
+        res.redirect("/admin/verifications");
+    } catch (err) {
+        console.error("Reject task error:", err);
+        req.flash("error_msg", "Gagal menolak tugas.");
+        res.redirect("/admin/verifications");
+    }
+});
+
+// ROUTE PUBLIK: Menangani Pengalihan Tugas Otomatis (Link Click)
+app.get("/task/verify/:taskId", requireLogin, async (req, res) => {
+    const taskId = req.params.taskId;
+    const userId = req.user.id;
+    
+    if (!userId) {
+        req.flash("error_msg", "Anda harus login untuk memverifikasi tugas.");
+        return res.redirect("/login");
+    }
+
+    const client = await pool.connect();
+    try {
+        await client.query("BEGIN");
+        
+        // 1. Cek Tugas (Hanya yang bertipe 'link_click' dan 'active')
+        const taskRes = await client.query(
+            "SELECT reward, verification_url FROM tasks WHERE id = $1 AND status = 'active' AND task_type = 'link_click'", 
+            [taskId]
+        );
+        
+        if (taskRes.rows.length === 0) {
+            req.flash("error_msg", "Tugas tidak aktif, tidak ditemukan, atau memerlukan verifikasi manual.");
+            await client.query("COMMIT");
+            return res.redirect("/dashboard");
+        }
+        const task = taskRes.rows[0];
+
+        // 2. Cek apakah User sudah menyelesaikan Tugas
+        const completionRes = await client.query(
+            "SELECT 1 FROM task_completions WHERE user_id = $1 AND task_id = $2 AND (status = 'completed' OR status = 'approved')",
+            [userId, taskId]
+        );
+        if (completionRes.rows.length > 0) {
+            req.flash("warning_msg", "Anda sudah menyelesaikan tugas ini.");
+            await client.query("COMMIT");
+            return res.redirect(task.verification_url); 
+        }
+
+        // 3. LOGIKA PEMBERIAN POIN OTOMATIS
+        await client.query("UPDATE users SET points = points + $1 WHERE id = $2", [task.reward, userId]);
+        await client.query(
+            "INSERT INTO task_completions (user_id, task_id, status) VALUES ($1, $2, 'approved')", // Langsung set status 'approved'
+            [userId, taskId]
+        );
+        
+        await client.query("COMMIT");
+        
+        req.flash("success_msg", `Berhasil! Anda mendapatkan ${task.reward} Poin.`);
+        return res.redirect(task.verification_url); 
+
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("Error verifikasi tugas otomatis:", err);
+        req.flash("error_msg", "Terjadi kesalahan saat memproses tugas.");
+        return res.redirect("/dashboard");
+    } finally {
+        client.release();
     }
 });
 
@@ -1331,6 +1861,23 @@ app.get("/admin/wallet", requireAdmin, async (req, res) => {
   }
 });
 
+// Term Of Reffrence//
+
+app.get("/terms", (req, res) => {
+    res.render("terms", {
+        title: "Terms of Service",
+        // Asumsi header/footer Anda memerlukan variabel user
+        user: req.user || { username: 'Guest' } 
+    });
+});
+
+app.get("/privacy-policy", (req, res) => {
+    res.render("privacy-policy", { 
+        title: "Privacy Policy",
+        user: req.user || { username: 'Guest' }
+    });
+});
+
 // ================= START SERVER =================
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🚀 Server berjalan di http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server berjalan di ${PORT}`));

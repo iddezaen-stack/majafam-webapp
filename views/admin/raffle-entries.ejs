@@ -2,49 +2,53 @@
 
 <div class="container-fluid">
     <div class="row">
-        <div class="col-md-3 col-lg-2 bg-navy text-white vh-100 p-3">
+        <div class="col-md-3 col-lg-2 admin-sidebar text-white vh-100 p-3">
             <%- include('sidebar') %>
         </div>
 
         <div class="col-md-9 col-lg-10 p-4">
-            <h2 class="mb-4">Peserta Raffle: <%= raffleTitle %></h2>
+            <h2 class="mb-4 text-white">Peserta Raffle: <%= raffleTitle %></h2>
             
             <a href="/admin/raffles" class="btn btn-secondary mb-4">
-                <i class="fas fa-arrow-left me-2"></i> Kembali ke Daftar Raffles
+                <i class="bi bi-arrow-left me-2"></i> Kembali ke Daftar Raffles
             </a>
 
-            <div class="card shadow-sm">
+            <div class="card shadow-lg border-0 bg-dark text-white">
                 <div class="card-body">
-                    <h5 class="mb-3">Daftar Semua Entri (<%= entries.length %> Total)</h5>
-                    <table class="table table-dark table-hover align-middle">
-                        <thead>
-                            <tr>
-                                <th>No.</th>
-                                <th>Username</th>
-                                <th>Email</th>
-                                <th>Waktu Gabung</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <% if (entries.length > 0) { %>
-                                <% entries.forEach((entry, index) => { %>
-                                    <tr>
-                                        <td><%= index + 1 %></td>
-                                        <td><%= entry.username %></td>
-                                        <td><%= entry.email %></td>
-                                        <td><%= entry.entry_time.toLocaleString('id-ID', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) %></td>
-                                    </tr>
-                                <% }) %>
-                            <% } else { %>
+                    <h5 class="card-title mb-4 border-bottom border-secondary pb-2">
+                        Daftar Semua Entri (<%= entries.length %> Total)
+                    </h5>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-dark table-hover align-middle">
+                            <thead>
                                 <tr>
-                                    <td colspan="4" class="text-center">Belum ada peserta yang mendaftar untuk raffle ini.</td>
+                                    <th>No.</th>
+                                    <th>Username</th>
+                                    <th>Email</th>
+                                    <th>Waktu Gabung</th>
                                 </tr>
-                            <% } %>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                                <% if (entries.length > 0) { %>
+                                    <% entries.forEach((entry, index) => { %>
+                                        <tr>
+                                            <td><%= index + 1 %></td>
+                                            <td><%= entry.username %></td>
+                                            <td><%= entry.email %></td>
+                                            <td><%= entry.entry_time.toLocaleString('id-ID', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) %></td>
+                                        </tr>
+                                    <% }) %>
+                                <% } else { %>
+                                    <tr>
+                                        <td colspan="4" class="text-center">Belum ada peserta yang mendaftar untuk raffle ini.</td>
+                                    </tr>
+                                <% } %>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-            
-            </div>
+        </div>
     </div>
 </div>

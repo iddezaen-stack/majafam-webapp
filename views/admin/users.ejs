@@ -1,0 +1,130 @@
+<%- include('../partials/header-admin') %>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-3 col-lg-2 admin-sidebar text-white vh-100 p-3">
+            <%- include('sidebar') %>
+        </div>
+
+        <div class="col-md-9 col-lg-10 p-4">
+            <h2 class="mb-4 text-white">Kelola Pengguna</h2>
+
+            <div class="card bg-dark shadow-lg border-0 rounded-4">
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Username</th>
+                                <th>Email</th>
+                                <th>Poin</th>
+                                <th>Status</th>
+                                <th>Dibuat</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% users.forEach(u => { %>
+                                <tr>
+                                    <td><%= u.id %></td>
+                                    <td><%= u.username %></td>
+                                    <td><%= u.email %></td>
+                                    <td><%= u.points.toLocaleString('id-ID') %></td>
+                                    <td>
+                                        <span class="badge <%= u.is_banned ? 'bg-danger' : 'bg-success' %>">
+                                            <%= u.is_banned ? 'BANNED' : 'Aktif' %>
+                                        </span>
+                                    </td>
+                                    <td><%= new Date(u.created_at).toLocaleDateString('id-ID') %></td>
+                                    <td>
+                                        <button type="button" class="btn btn-sm btn-info me-1 text-dark" onclick="showTipModal(<%= u.id %>, '<%= u.username %>')">
+                                            <i class="bi bi-coin"></i> Tip Poin
+                                        </button>
+                                        
+                                        <form action="/admin/user/<%= u.id %>/ban" method="POST" class="d-inline">
+                                            <input type="hidden" name="action" value="<%= u.is_banned ? 'unban' : 'ban' %>">
+                                            <button type="submit" class="btn btn-sm <%= u.is_banned ? 'btn-success' : 'btn-danger' %>" 
+                                                    onclick="return confirm('Yakin ingin <%= u.is_banned ? 'UNBAN' : 'BAN' %> <%= u.username %>?')">
+                                                <%= u.is_banned ? 'UNBAN' : 'BAN' %>
+                                            </button>
+                                        </form>
+                                        
+                                        <button class="btn btn-sm btn-secondary" disabled>
+                                            <i class="bi bi-chat"></i> Pesan
+                                        </button>
+                                    </td>
+                                </tr>
+                            <% }) %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="tipPointModal" tabindex="-1" aria-labelledby="tipPointModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="tipPointModalLabel">Berikan Poin ke <span id="modal-username" class="text-info"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="tipPointForm" method="POST">
+                <div class="modal-body">
+                    <input type="hidden" name="userId" id="modal-user-id">
+                    <div class="mb-3">
+                        <label for="pointAmount" class="form-label">Jumlah Poin (+ atau -)</label>
+                        <input type="number" name="amount" id="pointAmount" class="form-control bg-secondary text-white border-secondary" required placeholder="Cth: 100 atau -50">
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-primary">Konfirmasi</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="tipPointModal" tabindex="-1" aria-labelledby="tipPointModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content bg-dark text-white">
+            <div class="modal-header border-secondary">
+                <h5 class="modal-title" id="tipPointModalLabel">Berikan Poin ke <span id="modal-username" class="text-info"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="tipPointForm" method="POST">
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="pointAmount" class="form-label">Jumlah Poin (+ atau -)</label>
+                        <input type="number" name="amount" id="pointAmount" class="form-control bg-secondary text-white border-secondary" required placeholder="Cth: 100 atau -50">
+                        <div class="form-text text-white-50">Gunakan angka negatif untuk mengurangi poin.</div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-primary">Konfirmasi Tip</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Fungsi untuk menampilkan Modal Tip Poin (Dipanggil oleh tombol di tabel)
+    function showTipModal(userId, username) {
+        // Mengisi data user ke modal
+        document.getElementById('modal-username').textContent = username;
+        
+        // Mengubah action form agar mengarah ke route POST yang benar
+        document.getElementById('tipPointForm').action = `/admin/user/${userId}/tip-point`;
+        
+        // Mengosongkan field input sebelumnya
+        document.getElementById('pointAmount').value = '';
+
+        // Menampilkan modal menggunakan fungsi Bootstrap 5
+        const tipModal = new bootstrap.Modal(document.getElementById('tipPointModal'));
+        tipModal.show();
+    }
+    </script>

@@ -1,89 +1,133 @@
 <%- include('../partials/header-admin') %>
 
 <div class="container-fluid">
-  <div class="row">
-    <!-- Sidebar -->
-    <div class="col-md-3 col-lg-2">
-      <%- include('sidebar') %>
+    <div class="row">
+        <!-- Sidebar -->
+        <!-- Mengganti class col-md-3 col-lg-2 agar sesuai dengan style admin -->
+        <div class="col-md-3 col-lg-2 admin-sidebar text-white vh-100 p-3">
+            <%- include('sidebar') %>
+        </div>
+
+        <!-- Main Content -->
+        <main class="col-md-9 col-lg-10 p-4">
+            <h2 class="mb-4 text-white">Kelola Claim Code</h2>
+
+            <!-- Form Tambah Claim Code (Diperbarui) -->
+            <div class="card bg-dark text-white shadow-sm mb-4">
+                <div class="card-header border-bottom border-secondary d-flex justify-content-between align-items-center">
+                    <span>Tambah Claim Code Baru</span>
+                </div>
+                <div class="card-body">
+                    <form action="/admin/claim-code/new" method="POST" class="row g-3">
+                        <div class="col-md-3">
+                            <label class="form-label text-white-50">Kode</label>
+                            <input type="text" name="code" class="form-control bg-secondary text-white border-secondary" required>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label text-white-50">Jumlah Point</label>
+                            <input type="number" name="points" class="form-control bg-secondary text-white border-secondary" required>
+                        </div>
+                        
+                        <!-- FIELD BARU: TANGGAL KADALUARSA -->
+                        <div class="col-md-3">
+                            <label class="form-label text-white-50">Kadaluarsa (Tanggal)</label>
+                            <!-- Input date harus disetel timezone ke UTC untuk konsistensi DB -->
+                            <input type="date" name="expiry_date" class="form-control bg-secondary text-white border-secondary">
+                        </div>
+
+                        <!-- FIELD BARU: MAKSIMAL KLAIM -->
+                        <div class="col-md-3">
+                            <label class="form-label text-white-50">Maksimal Klaim</label>
+                            <input type="number" name="max_claims" class="form-control bg-secondary text-white border-secondary" value="0" min="0" placeholder="0 = Tak Terbatas">
+                            <div class="form-text text-white-50">0 berarti tidak ada batas klaim.</div>
+                        </div>
+
+                        <div class="col-12 d-flex align-items-end justify-content-end">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-plus-circle me-1"></i> Tambah Kode
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Daftar Claim Codes (Diperbarui) -->
+            <div class="card bg-dark text-white shadow-sm">
+                <div class="card-header border-bottom border-secondary">Daftar Claim Codes</div>
+                <div class="table-responsive">
+                    <table class="table table-dark table-hover align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th>Kode</th>
+                                <th>Poin</th>
+                                <th>Status</th>
+                                <th>Kadaluarsa</th> <!-- KOLOM BARU -->
+                                <th>Maks Klaim</th> <!-- KOLOM BARU -->
+                                <th>Dibuat</th>
+                                <th>Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <% if (codes.length > 0) { %>
+                                <% codes.forEach(c => { %>
+                                    <tr>
+                                        <td><%= c.code %></td>
+                                        <td><%= c.points %></td>
+                                        <td>
+                                            <% 
+                                                const isExpired = c.expiry_date && new Date(c.expiry_date) < new Date();
+                                                const isUsed = c.redeemed_count >= c.max_claims && c.max_claims > 0;
+                                                
+                                                if (c.redeemed_count > 0 && c.max_claims > 0) {
+                                                    // Jika sudah diklaim, tampilkan jumlah klaim
+                                            %>
+                                                <span class="badge bg-warning text-dark"><%= c.redeemed_count %> / <%= c.max_claims %></span>
+                                            <% } else if (isExpired) { %>
+                                                <span class="badge bg-danger">Kadaluarsa</span>
+                                            <% } else if (c.status === 'active' || !isExpired) { %>
+                                                <span class="badge bg-success">Aktif</span>
+                                            <% } else { %>
+                                                <span class="badge bg-secondary">T/A</span>
+                                            <% } %>
+                                        </td>
+                                        
+                                        <!-- Menampilkan Tanggal Kadaluarsa -->
+                                        <td>
+                                            <% if (c.expiry_date) { %>
+                                                <%= new Date(c.expiry_date).toLocaleDateString('id-ID') %>
+                                            <% } else { %>
+                                                <span class="text-muted">Tidak Ada</span>
+                                            <% } %>
+                                        </td>
+                                        
+                                        <!-- Menampilkan Maksimal Klaim -->
+                                        <td>
+                                            <% if (c.max_claims > 0) { %>
+                                                <%= c.max_claims %>
+                                            <% } else { %>
+                                                Tak Terbatas
+                                            <% } %>
+                                        </td>
+
+                                        <td><%= new Date(c.created_at).toLocaleDateString('id-ID') %></td>
+                                        <td>
+                                            <form action="/admin/claim-code/<%= c.id %>/delete" method="POST" class="d-inline" onsubmit="return confirm('Anda yakin menghapus kode ini?');">
+                                                <button type="submit" class="btn btn-sm btn-outline-danger">
+                                                    <i class="bi bi-trash"></i> Hapus
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <% }) %>
+                            <% } else { %>
+                                <tr>
+                                    <td colspan="7" class="text-center text-muted">Belum ada Claim Code</td>
+                                </tr>
+                            <% } %>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
     </div>
-
-    <!-- Main Content -->
-    <main class="col-md-9 col-lg-10 p-4">
-      <h2 class="mb-4">Kelola Claim Code</h2>
-
-      <!-- Form Tambah Claim Code -->
-      <div class="card bg-dark text-white shadow-sm mb-4">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <span>Tambah Claim Code</span>
-        </div>
-        <div class="card-body">
-          <form action="/admin/claim-code/new" method="POST" class="row g-3">
-            <div class="col-md-4">
-              <label class="form-label">Kode</label>
-              <input type="text" name="code" class="form-control bg-dark text-white border-secondary" required>
-            </div>
-            <div class="col-md-4">
-              <label class="form-label">Jumlah Point</label>
-              <input type="number" name="points" class="form-control bg-dark text-white border-secondary" required>
-            </div>
-            <div class="col-md-4 d-flex align-items-end">
-              <button type="submit" class="btn btn-primary w-100">
-                <i class="bi bi-plus-circle me-1"></i> Tambah
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-
-      <!-- Daftar Claim Codes -->
-      <div class="card bg-dark text-white shadow-sm">
-        <div class="card-header">Daftar Claim Codes</div>
-        <div class="table-responsive">
-          <table class="table table-dark table-hover align-middle mb-0">
-            <thead>
-              <tr>
-                <th>Kode</th>
-                <th>Poin</th>
-                <th>Status</th>
-                <th>Dibuat</th>
-                <th>Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% if (codes.length > 0) { %>
-                <% codes.forEach(c => { %>
-                  <tr>
-                    <td><%= c.code %></td>
-                    <td><%= c.points %></td>
-                    <td>
-                      <% if (c.redeemed) { %>
-                        <span class="badge bg-danger">Sudah Dipakai</span>
-                      <% } else { %>
-                        <span class="badge bg-success">Aktif</span>
-                      <% } %>
-                    </td>
-                    <td><%= new Date(c.created_at).toLocaleString() %></td>
-                    <td>
-                      <form action="/admin/claim-code/<%= c.id %>/delete" method="POST" class="d-inline">
-                        <button type="submit" class="btn btn-sm btn-outline-danger">
-                          <i class="bi bi-trash"></i> Hapus
-                        </button>
-                      </form>
-                    </td>
-                  </tr>
-                <% }) %>
-              <% } else { %>
-                <tr>
-                  <td colspan="5" class="text-center text-muted">Belum ada Claim Code</td>
-                </tr>
-              <% } %>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </main>
-  </div>
 </div>
-
-</body>
-</html>

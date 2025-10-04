@@ -1,93 +1,124 @@
 <%- include('../partials/header-admin') %>
 
 <div class="container-fluid">
-  <div class="row">
-        <div class="col-md-3 col-lg-2 bg-navy text-white vh-100 p-3">
-      <%- include('sidebar') %>
-    </div>
+    <div class="row">
+        <div class="col-md-3 col-lg-2 admin-sidebar text-white vh-100 p-3">
+            <%- include('sidebar') %>
+        </div>
 
-        <div class="col-md-9 col-lg-10 p-4">
-      <h2 class="mb-4">Kelola Raffles</h2>
+        <div class="col-md-9 col-lg-10 p-4">
+            <h2 class="mb-4 text-white">Kelola Raffles</h2>
+		<% if (messages.success_msg && messages.success_msg.length > 0) { %>
+    			<div class="alert alert-success"><%= messages.success_msg %></div>
+		<% } %>
+		<% if (messages.error_msg && messages.error_msg.length > 0) { %>
+    			<div class="alert alert-danger"><%= messages.error_msg %></div>
+		<% } %>
 
-            <div class="card mb-4 shadow-sm">
-        <div class="card-body">
-          <h5 class="mb-3">Tambah Raffle Baru</h5>
-          <form action="/admin/raffles/new" method="POST">
-            <div class="mb-3">
-              <label class="form-label">Judul</label>
-              <input type="text" name="title" class="form-control" required>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Reward</label>
-              <input type="text" name="reward" class="form-control" required>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Tanggal Undian</label>
-              <input type="date" name="draw_date" class="form-control" required>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Status</label>
-              <select name="status" class="form-select">
-                <option value="active">Active</option>
-                <option value="closed">Closed</option>
-              </select>
-            </div>
-            <button type="submit" class="btn btn-primary">Tambah Raffle</button>
-          </form>
-        </div>
-      </div>
-
-            <div class="card shadow-sm">
-        <div class="card-body">
-          <h5 class="mb-3">Daftar Raffles</h5>
-          <table class="table table-dark table-hover align-middle">
-            <thead>
-              <tr>
-                <th>Judul</th>
-                <th>Reward</th>
-                <th>Draw Date</th>
-                <th>Peserta</th>                 <th>Status</th>
-                <th>Aksi</th>
-              </tr>
-            </thead>
-            <tbody>
-              <% if (raffles.length > 0) { %>
-                <% raffles.forEach(r => { %>
-                  <tr>
-                    <td><%= r.title %></td>
-                    <td><%= r.reward %></td>
-                    <td><%= r.draw_date ? r.draw_date.toISOString().split('T')[0] : '-' %></td>
-                    <td>
-                      <span class="badge bg-info"><%= r.total_entries %> Peserta</span>                     </td>
-                    <td>
-                      <span class="badge bg-<%= r.status === 'active' ? 'success' : 'secondary' %>">
-                        <%= r.status %>
-                      </span>
-                    </td>
-                    <td>
-                        <a href="/admin/raffles/<%= r.id %>/entries" class="btn btn-sm btn-primary me-1">Lihat Peserta</a>
-                                            <form action="/admin/raffles/<%= r.id %>/edit" method="POST" class="d-inline">
-                        <input type="hidden" name="title" value="<%= r.title %>">
-                        <input type="hidden" name="reward" value="<%= r.reward %>">
-                        <input type="hidden" name="draw_date" value="<%= r.draw_date ? r.draw_date.toISOString().split('T')[0] : '' %>">
-                        <input type="hidden" name="status" value="<%= r.status %>">
-                        <button type="submit" class="btn btn-sm btn-warning">Edit</button>
-                      </form>
-                                            <form action="/admin/raffles/<%= r.id %>/delete" method="POST" class="d-inline">
-                        <button type="submit" class="btn btn-sm btn-danger">Hapus</button>
-                      </form>
-                    </td>
-                  </tr>
-                <% }) %>
-              <% } else { %>
-                <tr>
-                  <td colspan="6" class="text-center">Belum ada raffle</td>
-                </tr>
-              <% } %>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  </div>
+            <div class="row g-4">
+                <div class="col-lg-5">
+                    <div class="card shadow-lg border-0 bg-dark text-white">
+                        <div class="card-body">
+                            <h5 class="card-title mb-4 border-bottom border-secondary pb-2">Buat Raffle Baru</h5>
+                            <form action="/admin/raffles/new" method="POST">
+                                <div class="mb-3">
+                                    <label for="title" class="form-label">Judul Raffle</label>
+                                    <input type="text" class="form-control bg-secondary text-white border-0" id="title" name="title" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="reward" class="form-label">Reward (Hadiah)</label>
+                                    <input type="text" class="form-control bg-secondary text-white border-0" id="reward" name="reward" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="draw_date" class="form-label">Tanggal Undian (Opsional)</label>
+                                    <input type="date" class="form-control bg-secondary text-white border-0" id="draw_date" name="draw_date">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="status" class="form-label">Status Awal</label>
+                                    <select class="form-select bg-secondary text-white border-0" id="status" name="status" required>
+                                        <option value="active">Active</option>
+                                        <option value="closed">Closed</option>
+                                        <option value="drawn">Drawn</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-success mt-3 w-100">Tambah Raffle</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="col-lg-7">
+                    <div class="card shadow-lg border-0 bg-dark text-white">
+                        <div class="card-body">
+                            <h5 class="card-title mb-4 border-bottom border-secondary pb-2">Daftar Raffles</h5>
+                            
+                            <div class="table-responsive">
+                                <table class="table table-dark table-hover align-middle">
+                                    <thead>
+                                        <tr>
+                                            <th>Judul</th>
+                                            <th>Reward</th>
+                                            <th>Draw Date</th>
+                                            <th>Peserta</th>
+                                            <th>Status</th>
+                                            <th>Pemenang</th> <th>Aksi</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <% if (raffles.length > 0) { %>
+                                            <% raffles.forEach(r => { %>
+                                                <tr>
+                                                    <td><%= r.title %></td>
+                                                    <td><%= r.reward %></td>
+                                                    <td><%= r.draw_date ? new Date(r.draw_date).toISOString().split('T')[0] : '-' %></td>
+                                                    <td>
+                                                        <span class="badge bg-info text-dark"><%= r.total_entries || 0 %> Entri</span> 
+                                                    </td>
+                                                    <td>
+                                                        <span class="badge bg-<%= r.status === 'active' ? 'success' : r.status === 'drawn' ? 'warning text-dark' : 'secondary' %>">
+                                                            <%= r.status.toUpperCase() %>
+                                                        </span>
+                                                    </td>
+                                                    
+                                                    <td>
+                                                        <% if (r.status === 'drawn' && r.winner_username) { %>
+                                                            <span class="badge bg-success fw-bold text-uppercase"><%= r.winner_username %></span>
+                                                        <% } else if (r.status === 'drawn' && !r.winner_username) { %>
+                                                            <span class="badge bg-danger">Diundi (Kosong)</span>
+                                                        <% } else { %>
+                                                            -
+                                                        <% } %>
+                                                    </td>
+                                                    
+                                                    <td>
+                                                        <a href="/admin/raffles/<%= r.id %>/entries" class="btn btn-sm btn-primary me-1">Peserta</a>
+                                                        
+                                                        <a href="/admin/raffles/<%= r.id %>/edit" class="btn btn-sm btn-warning me-1">Edit</a>
+                                                        
+                                                        <% if (r.status !== 'drawn') { %>
+                                                            <a href="/admin/raffles/<%= r.id %>/select-winner" class="btn btn-sm btn-info text-dark me-1">
+                                                               Pemenang
+                                                            </a>
+                                                        <% } %>
+                                                        
+                                                        <form action="/admin/raffles/<%= r.id %>/delete" method="POST" class="d-inline" onsubmit="return confirm('Anda yakin ingin menghapus raffle ini?');">
+                                                            <button type="submit" class="btn btn-sm btn-danger">Hapus</button>
+                                                        </form>
+                                                    </td>
+                                                </tr>
+                                            <% }) %>
+                                        <% } else { %>
+                                            <tr>
+                                                <td colspan="7" class="text-center">Belum ada raffle</td>
+                                            </tr>
+                                        <% } %>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>

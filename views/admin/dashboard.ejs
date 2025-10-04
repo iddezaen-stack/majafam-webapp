@@ -51,8 +51,25 @@
               </li>
             <% }) %>
           <% } else { %>
+	 
             <li class="list-group-item bg-dark text-white">No activity found.</li>
           <% } %>
+	  <div class="row g-4 mb-4">
+    <div class="col-md-6 col-lg-3">
+        <div class="card bg-success text-white shadow-lg border-0 rounded-4">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-people fs-1 me-3"></i>
+                    <div>
+                        <h5 class="card-title text-white-50 small mb-0">Total Pengguna</h5>
+                        <p class="fs-3 fw-bold mb-0"><%= stats.totalUsers.toLocaleString('id-ID') %></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    </div>
         </ul>
       </div>
     </main>

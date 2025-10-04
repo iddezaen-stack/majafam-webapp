@@ -1,45 +1,79 @@
 <%- include('../partials/header-admin') %>
 
 <div class="container-fluid">
-  <div class="row">
-    <!-- Sidebar -->
-    <div class="col-md-3 col-lg-2 bg-navy text-white vh-100 p-3">
-      <%- include('sidebar') %>
-    </div>
-
-    <!-- Main Content -->
-    <div class="col-md-9 col-lg-10 p-4">
-      <h2><%= task ? "Edit Tugas" : "Tambah Tugas" %></h2>
-
-      <div class="card shadow-sm border-0 mt-4">
-        <div class="card-body">
-          <form method="POST" action="<%= task ? '/admin/tasks/' + task.id + '/edit' : '/admin/tasks/new' %>">
-            <div class="mb-3">
-              <label class="form-label">Judul</label>
-              <input type="text" name="title" class="form-control" value="<%= task ? task.title : '' %>" required>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Deskripsi</label>
-              <textarea name="description" class="form-control" rows="3"><%= task ? task.description : '' %></textarea>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Reward (Poin)</label>
-              <input type="number" name="reward" class="form-control" value="<%= task ? task.reward : 0 %>" required>
-            </div>
-            <div class="mb-3">
-              <label class="form-label">Status</label>
-              <select name="status" class="form-select">
-                <option value="active" <%= task && task.status === 'active' ? 'selected' : '' %>>Active</option>
-                <option value="inactive" <%= task && task.status === 'inactive' ? 'selected' : '' %>>Inactive</option>
-              </select>
-            </div>
-            <button type="submit" class="btn btn-success">
-              <i class="bi bi-save me-1"></i> Simpan
-            </button>
-            <a href="/admin/tasks" class="btn btn-secondary ms-2">Batal</a>
-          </form>
+    <div class="row">
+        <div class="col-md-3 col-lg-2 admin-sidebar text-white vh-100 p-3">
+            <%- include('sidebar') %>
         </div>
-      </div>
+
+        <div class="col-md-9 col-lg-10 p-4">
+            <h2 class="mb-4 text-white"><%= title %></h2> 
+
+            <div class="card bg-dark shadow-lg border-0 rounded-4">
+                <div class="card-body">
+                    <form action="<%= task ? '/admin/tasks/' + task.id + '/edit' : '/admin/tasks/new' %>" 
+                          method="POST" 
+                          class="row g-3">
+                        
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-white-50">Judul</label>
+                            <input type="text" name="title" class="form-control bg-secondary text-white border-secondary" required 
+                                   value="<%= task ? task.title : '' %>">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-white-50">Reward Poin</label>
+                            <input type="number" name="reward" class="form-control bg-secondary text-white border-secondary" required 
+                                   value="<%= task ? task.reward : '' %>">
+                        </div>
+
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-white-50">Jenis Verifikasi</label>
+                            <select name="task_type" class="form-select bg-secondary text-white border-secondary" required>
+                                <option value="manual" <%= task && task.task_type === 'manual' ? 'selected' : '' %>>
+                                    Manual (Perlu Bukti)
+                                </option>
+                                <option value="link_click" <%= task && task.task_type === 'link_click' ? 'selected' : '' %>>
+                                    Otomatis (Redirect Link)
+                                </option>
+                            </select>
+                        </div>
+                        
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label text-white-50">Link Verifikasi (Hanya Otomatis)</label>
+                            <input type="url" name="verification_url" class="form-control bg-secondary text-white border-secondary" 
+                                   placeholder="Contoh: https://youtube.com/c/majafam" 
+                                   value="<%= task ? task.verification_url : '' %>">
+                            <div class="form-text text-white-50">
+                                Link tujuan setelah user mengklik tugas (hanya untuk Otomatis).
+                            </div>
+                        </div>
+
+                        <% if (task) { %>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label text-white-50">Status</label>
+                                <select name="status" class="form-select bg-secondary text-white border-secondary" required>
+                                    <option value="active" <%= task.status === 'active' ? 'selected' : '' %>>Aktif</option>
+                                    <option value="inactive" <%= task.status === 'inactive' ? 'selected' : '' %>>Tidak Aktif</option>
+                                </select>
+                            </div>
+                        <% } else { %>
+                            <input type="hidden" name="status" value="active">
+                        <% } %>
+
+                        <div class="col-12 mb-3">
+                            <label class="form-label text-white-50">Deskripsi</label>
+                            <textarea name="description" class="form-control bg-secondary text-white border-secondary" rows="3"><%= task ? task.description : '' %></textarea>
+                        </div>
+                        
+                        <div class="col-12 text-end">
+                            <a href="/admin/tasks" class="btn btn-secondary me-2">Batal</a>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-save me-1"></i> <%= task ? 'Perbarui Tugas' : 'Tambah Tugas' %>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
-  </div>
 </div>

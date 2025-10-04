@@ -1,0 +1,50 @@
+<%- include('../partials/header-admin') %>
+
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-md-3 col-lg-2 admin-sidebar text-white vh-100 p-3">
+            <%- include('sidebar') %>
+        </div>
+
+        <div class="col-md-9 col-lg-10 p-4">
+            <h2 class="mb-4 text-white">Edit Raffle: <%= raffle.title %></h2>
+            
+            <a href="/admin/raffles" class="btn btn-secondary mb-4">
+                <i class="bi bi-arrow-left me-2"></i> Kembali ke Daftar Raffles
+            </a>
+
+            <div class="card mb-4 shadow-sm bg-dark text-white">
+                <div class="card-body">
+                    <h5 class="mb-3">Formulir Edit</h5>
+                    
+                    <form action="/admin/raffles/<%= raffle.id %>/edit" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label">Judul</label>
+                            <input type="text" name="title" class="form-control bg-secondary text-white border-0" value="<%= raffle.title %>" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Reward</label>
+                            <input type="text" name="reward" class="form-control bg-secondary text-white border-0" value="<%= raffle.reward %>" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Tanggal Undian</label>
+                            <% 
+                                const drawDate = raffle.draw_date ? new Date(raffle.draw_date).toISOString().split('T')[0] : '';
+                            %>
+                            <input type="date" name="draw_date" class="form-control bg-secondary text-white border-0" value="<%= drawDate %>" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Status</label>
+                            <select name="status" class="form-select bg-secondary text-white border-0">
+                                <option value="active" <%= raffle.status === 'active' ? 'selected' : '' %>>Active</option>
+                                <option value="closed" <%= raffle.status === 'closed' ? 'selected' : '' %>>Closed</option>
+                                <option value="drawn" <%= raffle.status === 'drawn' ? 'selected' : '' %>>Drawn</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
