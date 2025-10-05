@@ -868,22 +868,17 @@ app.post("/claim-code", ensureAuthenticated, async (req, res) => {
 });
 
 // ================= ROUTES RIWAYAT (FINAL FIX 2.0) =================
-
 app.get("/history", ensureAuthenticated, async (req, res) => {
     let history = [];
-    
-    // Siapkan variabel fallback yang dibutuhkan
-    const wallets = []; 
-    const selectedWallet = { currency: "IDR", balance: 0 };
+    const client = await pool.connect();
     
     try {
-        // Query Konsolidasi: Menggunakan UNION ALL untuk menggabungkan data
         const consolidationQuery = `
-            -- 1. RIWAYAT PERUBAHAN POIN (PERBAIKAN: Menggunakan 'reward' sebagai 'description')
+            -- 1. RIWAYAT PERUBAHAN POIN (Tukar, Klaim, dll.)
             SELECT 
                 id, 
                 created_at, 
-                reward AS description, -- DIGANTI DARI 'description' ke 'reward'
+                reward AS description, -- PERBAIKAN: Menggunakan 'reward' sebagai deskripsi
                 points AS change_amount, 
                 'POINT' AS type
             FROM point_history
@@ -891,7 +886,7 @@ app.get("/history", ensureAuthenticated, async (req, res) => {
             
             UNION ALL
             
-            -- 2. RIWAYAT PENYELESAIAN TUGAS
+            -- 2. RIWAYAT PENYELESAIAN TUGAS (Mengambil Reward dari tasks)
             SELECT 
                 tc.id, 
                 tc.completed_at AS created_at, 
@@ -912,30 +907,23 @@ app.get("/history", ensureAuthenticated, async (req, res) => {
             ORDER BY created_at DESC;
         `;
         
-        const historyRes = await pool.query(consolidationQuery, [req.user.id]);
+        const historyRes = await client.query(consolidationQuery, [req.user.id]);
         history = historyRes.rows;
 
     } catch (err) {
-        // Log ini adalah yang penting untuk debugging
         console.error("History error (FINAL DIAGNOSIS):", err.message);
-        req.flash("error_msg", "Gagal memuat riwayat aktivitas. Cek log server.");
-        
-        // Tetap render dengan data kosong
-        return res.render("history", {
-            title: "Riwayat Aktivitas",
-            user: req.user,
-            history: [],
-            wallets: wallets,
-            selectedWallet: selectedWallet
-        });
+        req.flash("error_msg", "Gagal memuat riwayat aktivitas. Error DB.");
+        return res.redirect("/dashboard");
+    } finally {
+        client.release();
     }
 
     res.render("history", {
         title: "Riwayat Aktivitas",
         user: req.user,
         history: history,
-        wallets: wallets,
-        selectedWallet: selectedWallet
+        wallets: res.locals.wallets,
+        selectedWallet: res.locals.selectedWallet
     });
 });
 
