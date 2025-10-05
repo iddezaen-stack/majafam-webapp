@@ -10,6 +10,59 @@
     </div>
 </footer>
 
+<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index: 2000;">
+    </div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+
+<script src="/socket.io/socket.io.js"></script>
+
+<script>
+    // Koneksi ke server WebSocket
+    const socket = io(); 
+    
+    // Asumsi variabel user tersedia secara global jika user sudah login
+    const currentUserId = typeof user !== 'undefined' && user ? user.id : null; 
+
+    // Fungsi helper untuk menampilkan Toast (Menggunakan Bootstrap JS)
+    function showNewToast(type, message) {
+        const toastHtml = `
+            <div class="toast align-items-center text-bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="5000">
+                <div class="d-flex">
+                    <div class="toast-body">${message}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            </div>`;
+        
+        // Injeksi HTML toast ke container
+        document.getElementById('toast-container').insertAdjacentHTML('beforeend', toastHtml);
+        
+        // Inisialisasi dan tampilkan toast terbaru
+        const newToastEl = document.getElementById('toast-container').lastElementChild;
+        const toastBootstrap = new bootstrap.Toast(newToastEl);
+        toastBootstrap.show();
+    }
+
+    // --- PENDENGAR EVENT DARI SERVER (io.emit) ---
+
+    // A. Notifikasi Raffle Baru (Untuk SEMUA user)
+    socket.on('new_raffle', (data) => {
+        showNewToast('info', data.message);
+    });
+
+    // B. Notifikasi Tugas Baru (Untuk SEMUA user)
+    socket.on('new_task', (data) => {
+        showNewToast('info', data.message);
+    });
+    
+    // C. Notifikasi Tip Poin (Hanya untuk USER TARGET)
+    socket.on('user_tipped', (data) => {
+        // Cek apakah notifikasi ini ditujukan ke user yang sedang login
+        if (currentUserId && parseInt(currentUserId) === parseInt(data.userId)) {
+            showNewToast('success', data.message);
+        }
+    });
+
+</script>
 </body>
 </html>
