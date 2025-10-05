@@ -15,7 +15,7 @@ const { google } = require('googleapis');
 const youtube = google.youtube({ version: 'v3', auth: process.env.YOUTUBE_API_KEY });
 const http = require('http'); // New Insert
 const server = http.createServer(app); // New Insert
-const io = require('socket.io')(server); // Update Versi 1.1.10
+const io = require('socket.io')(server); // Update Versi 1.1.11
 
 // ================= DATABASE =================
 const pool = new Pool({
@@ -1548,17 +1548,16 @@ app.post("/admin/raffles/:id/set-winner", requireAdmin, async (req, res) => {
     }
 });
 
-
 // ROUTE 4: POST /admin/raffles/new (CREATE: Tambah raffle)
 app.post("/admin/raffles/new", requireAdmin, async (req, res) => {
-    const { title, reward, status, draw_date } = req.body;
-    try {
-        await pool.query(
-            "INSERT INTO raffles (title, reward, status, draw_date) VALUES ($1,$2,$3,$4)",
-            [title, reward, status, draw_date]
-        );
+    const { title, reward, status, draw_date } = req.body;
+    try {
+        await pool.query(
+            "INSERT INTO raffles (title, reward, status, draw_date) VALUES ($1,$2,$3,$4)",
+            [title, reward, status, draw_date]
+        );
         
-        // ================= NOTIFIKASI REAL-TIME =================
+        // ================= BLOK NOTIFIKASI BARU =================
         // io.emit mengirim notifikasi ke semua user yang sedang online
         io.emit('new_raffle', { 
             title: title, 
@@ -1566,13 +1565,13 @@ app.post("/admin/raffles/new", requireAdmin, async (req, res) => {
         });
         // =========================================================
         
-        req.flash("success_msg", "Raffle berhasil ditambahkan.");
-        res.redirect("/admin/raffles");
-    } catch (err) {
-        console.error("Tambah raffle error:", err);
-        req.flash("error_msg", "Gagal menambahkan raffle.");
-        res.redirect("/admin/raffles");
-    }
+        req.flash("success_msg", "Raffle berhasil ditambahkan.");
+        res.redirect("/admin/raffles");
+    } catch (err) {
+        console.error("Tambah raffle error:", err);
+        req.flash("error_msg", "Gagal menambahkan raffle.");
+        res.redirect("/admin/raffles");
+    }
 });
 
 // ROUTE 5: POST /admin/raffles/:id/edit (UPDATE: Edit raffle)
