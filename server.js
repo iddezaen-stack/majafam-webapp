@@ -1,5 +1,6 @@
 require("dotenv").config();
 const express = require("express");
+const app = express();
 const session = require("express-session");
 const flash = require("connect-flash");
 const passport = require("passport");
@@ -9,10 +10,12 @@ const { Pool } = require("pg");
 const bcrypt = require("bcrypt");
 const path = require("path");
 const pm2 = require("pm2");
-const app = express();
 const fs = require("fs");
 const { google } = require('googleapis');
 const youtube = google.youtube({ version: 'v3', auth: process.env.YOUTUBE_API_KEY });
+const http = require('http'); // New Insert
+const server = http.createServer(app); // New Insert
+const io = require('socket.io')(server); // Update Versi 1.1.10
 
 // ================= DATABASE =================
 const pool = new Pool({
@@ -1093,25 +1096,44 @@ app.get("/admin/users", requireAdmin, async (req, res) => {
     }
 });
 
-// ROUTE 2: POST /admin/user/tip-point (Memberi/Mengurangi Poin)
+//Update Notif//
+// ROUTE 2: POST /admin/user/:id/tip-point (Memberi/Mengurangi Poin)
 app.post("/admin/user/:id/tip-point", requireAdmin, async (req, res) => {
     const userId = req.params.id;
     const { amount } = req.body;
     const amountInt = parseInt(amount);
 
+    // 1. VALIDASI (Harus di awal)
     if (isNaN(amountInt) || amountInt === 0) {
         req.flash("error_msg", "Jumlah poin tidak valid.");
         return res.redirect("/admin/users");
     }
 
+    const action = amountInt > 0 ? 'menambahkan' : 'mengurangi';
+
     try {
-        await pool.query(
-            "UPDATE users SET points = points + $1 WHERE id = $2",
+        // 2. QUERY DATABASE (CRITICAL STEP)
+        const result = await pool.query(
+            "UPDATE users SET points = points + $1 WHERE id = $2 RETURNING points", // Gunakan RETURNING untuk cek
             [amountInt, userId]
         );
-        req.flash("success_msg", `Berhasil ${amountInt > 0 ? 'menambahkan' : 'mengurangi'} ${Math.abs(amountInt)} poin.`);
+        
+        // 3. NOTIFIKASI & FLASH MESSAGE (Hanya jika query berhasil)
+        const finalMessage = `Anda baru saja menerima ${amountInt} Poin dari Admin!`;
+        
+        // Notifikasi Real-Time ke user target
+        io.emit('user_tipped', {
+            userId: userId, 
+            amount: amountInt,
+            message: finalMessage
+        });
+        
+        // Notifikasi Flash untuk Admin
+        req.flash("success_msg", `Berhasil ${action} ${Math.abs(amountInt)} poin kepada user ID ${userId}.`);
         res.redirect("/admin/users");
+        
     } catch (err) {
+        // 4. PENANGANAN ERROR
         console.error("Tip point error:", err);
         req.flash("error_msg", "Gagal memperbarui poin.");
         res.redirect("/admin/users");
@@ -1490,8 +1512,6 @@ app.get("/admin/raffles/:id/edit", requireAdmin, async (req, res) => {
 
 // ROUTE EXISTING: POST /admin/raffles/:id/edit (Memproses submit form)
 app.post("/admin/raffles/:id/edit", requireAdmin, async (req, res) => {
-    // ... (kode Anda yang sudah ada di sini)
-    // ...
 });
 
 // ROUTE 3: POST /admin/raffles/:id/set-winner (Menyimpan pemenang yang dipilih secara manual)
@@ -1537,6 +1557,15 @@ app.post("/admin/raffles/new", requireAdmin, async (req, res) => {
             "INSERT INTO raffles (title, reward, status, draw_date) VALUES ($1,$2,$3,$4)",
             [title, reward, status, draw_date]
         );
+        
+        // ================= NOTIFIKASI REAL-TIME =================
+        // io.emit mengirim notifikasi ke semua user yang sedang online
+        io.emit('new_raffle', { 
+            title: title, 
+            message: `🎉 RAFFLE BARU! ${title} telah dimulai! Hadiah: ${reward}. Tukar poin Anda!` 
+        });
+        // =========================================================
+        
         req.flash("success_msg", "Raffle berhasil ditambahkan.");
         res.redirect("/admin/raffles");
     } catch (err) {
@@ -1867,5 +1896,6 @@ app.get("/privacy-policy", (req, res) => {
 });
 
 // ================= START SERVER =================
+// Menghidupkan server gabungan (HTTP + WebSocket)
 const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => console.log(`🚀 Server berjalan di ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Server berjalan di Port ${PORT}`));
