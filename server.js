@@ -906,7 +906,7 @@ app.get("/history", ensureAuthenticated, async (req, res) => {
             FROM task_completions tc
             JOIN tasks t ON tc.task_id = t.id
             WHERE tc.user_id = $1
-            
+            UNINON ALL
             ORDER BY created_at DESC;
         `;
         
