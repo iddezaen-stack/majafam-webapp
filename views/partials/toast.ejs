@@ -1,42 +1,34 @@
-<!-- ✅ Toast Notification Component -->
-<div id="toast-container" class="position-fixed bottom-0 end-0 p-3" style="z-index: 1080;"></div>
-
-<script src="/socket.io/socket.io.js"></script>
-<script>
-  const socket = io();
-
-  // Fungsi utama untuk menampilkan toast
-  function showToast(message, type = "success") {
-    const toastContainer = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast align-items-center text-bg-${type} border-0 show mb-2 shadow-lg`;
-    toast.role = 'alert';
-    toast.ariaLive = 'assertive';
-    toast.ariaAtomic = 'true';
-    toast.innerHTML = `
-      <div class="d-flex">
-        <div class="toast-body">${message}</div>
-        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+<!-- Toast Notification (Bootstrap 5) -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 1100">
+  <% if (typeof success_msg !== 'undefined' && success_msg.length > 0) { %>
+    <% success_msg.forEach(msg => { %>
+      <div class="toast align-items-center text-bg-success border-0 mb-2" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+          <div class="toast-body"><i class="bi bi-check-circle me-2"></i><%= msg %></div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
       </div>
-    `;
-    toastContainer.appendChild(toast);
-    setTimeout(() => toast.remove(), 4000);
-  }
+    <% }) %>
+  <% } %>
 
-  // ✅ Realtime toast dari server (Socket.io)
-  socket.on('user_tipped', (data) => {
-    const currentUserId = "<%= user ? user.id : '' %>";
-    if (data.userId === currentUserId) {
-      showToast(data.message, "success");
-    }
+  <% if (typeof error_msg !== 'undefined' && error_msg.length > 0) { %>
+    <% error_msg.forEach(msg => { %>
+      <div class="toast align-items-center text-bg-danger border-0 mb-2" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+          <div class="toast-body"><i class="bi bi-exclamation-triangle me-2"></i><%= msg %></div>
+          <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+      </div>
+    <% }) %>
+  <% } %>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const toastElList = [].slice.call(document.querySelectorAll('.toast'))
+    toastElList.map(function (toastEl) {
+      const toast = new bootstrap.Toast(toastEl)
+      toast.show()
+    })
   });
-
-  // ✅ Flash message (dari server-side req.flash)
-  <% if (typeof success_msg !== "undefined" && success_msg.length > 0) { %>
-    showToast("<%= success_msg %>", "success");
-  <% } %>
-
-  <% if (typeof error_msg !== "undefined" && error_msg.length > 0) { %>
-    showToast("<%= error_msg %>", "danger");
-  <% } %>
 </script>
