@@ -870,64 +870,87 @@ app.post("/claim-code", ensureAuthenticated, async (req, res) => {
   }
 });
 
-// ================= ROUTES RIWAYAT (FINAL FIX 2.0) =================
+// ================= ROUTE HISTORY (FINAL 3.0) =================
 app.get("/history", ensureAuthenticated, async (req, res) => {
-    let history = [];
-    const client = await pool.connect();
-    
-    try {
-        const consolidationQuery = `
-            -- 1. RIWAYAT PERUBAHAN POIN (Tukar, Klaim, dll.)
-            SELECT 
-                id, 
-                created_at, 
-                reward AS description, -- PERBAIKAN: Menggunakan 'reward' sebagai deskripsi
-                points AS change_amount, 
-                'POINT' AS type
-            FROM point_history
-            WHERE user_id = $1
-            
-            UNION ALL
-            
-            -- 2. RIWAYAT PENYELESAIAN TUGAS (Mengambil Reward dari tasks)
-            SELECT 
-                tc.id, 
-                tc.completed_at AS created_at, 
-                t.title AS description,
-                CASE 
-                    WHEN tc.status = 'approved' THEN t.reward
-                    ELSE 0 
-                END AS change_amount,
-                CASE 
-                    WHEN tc.status = 'approved' THEN 'TASK_APPROVED'
-                    WHEN tc.status = 'rejected' THEN 'TASK_REJECTED'
-                    ELSE 'TASK_PENDING'
-                END AS type
-            FROM task_completions tc
-            JOIN tasks t ON tc.task_id = t.id
-            WHERE tc.user_id = $1
-            UNINON ALL
-            ORDER BY created_at DESC;
-        `;
-        
-        const historyRes = await client.query(consolidationQuery, [req.user.id]);
-        history = historyRes.rows;
+  const client = await pool.connect();
 
-    } catch (err) {
-        console.error("History error (FINAL DIAGNOSIS):", err.message);
-        req.flash("error_msg", "Gagal memuat riwayat aktivitas. Error DB.");
-        return res.redirect("/dashboard");
-    } finally {
-        client.release();
-    }
+  try {
+    const userId = req.user.id;
+
+    const query = `
+      -- 1️⃣ Riwayat Perubahan Manual (Penukaran, Bonus Admin, dsb.)
+      SELECT 
+        ph.id,
+        ph.created_at,
+        ph.reward AS description,
+        ph.points AS change_amount,
+        CASE 
+          WHEN ph.points > 0 THEN 'BONUS_ADMIN'
+          ELSE 'POINT_TRADE'
+        END AS type
+      FROM point_history ph
+      WHERE ph.user_id = $1
+
+      UNION ALL
+
+      -- 2️⃣ Riwayat Penyelesaian Tugas
+      SELECT 
+        tc.id,
+        tc.completed_at AS created_at,
+        t.title AS description,
+        CASE 
+          WHEN tc.status = 'approved' THEN t.reward
+          ELSE 0 
+        END AS change_amount,
+        CASE 
+          WHEN tc.status = 'approved' THEN 'TASK_APPROVED'
+          WHEN tc.status = 'rejected' THEN 'TASK_REJECTED'
+          ELSE 'TASK_PENDING'
+        END AS type
+      FROM task_completions tc
+      JOIN tasks t ON tc.task_id = t.id
+      WHERE tc.user_id = $1
+
+      UNION ALL
+
+      -- 3️⃣ Riwayat Tip (Kirim & Terima)
+      SELECT 
+        tips.id,
+        tips.created_at,
+        CASE 
+          WHEN tips.sender_id = $1 THEN CONCAT('Mengirim ', tips.amount, ' poin ke @', ru.username)
+          ELSE CONCAT('Menerima ', tips.amount, ' poin dari @', su.username)
+        END AS description,
+        CASE 
+          WHEN tips.sender_id = $1 THEN -tips.amount
+          ELSE tips.amount
+        END AS change_amount,
+        'TIP' AS type
+      FROM tips
+      JOIN users su ON tips.sender_id = su.id
+      JOIN users ru ON tips.recipient_id = ru.id
+      WHERE tips.sender_id = $1 OR tips.recipient_id = $1
+
+      ORDER BY created_at DESC;
+    `;
+
+    const result = await client.query(query, [userId]);
 
     res.render("history", {
-        title: "Riwayat Aktivitas",
-        user: req.user,
-        history: history,
-        wallets: res.locals.wallets,
-        selectedWallet: res.locals.selectedWallet
+      title: "Riwayat Aktivitas",
+      user: req.user,
+      history: result.rows,
+      wallets: res.locals.wallets,
+      selectedWallet: res.locals.selectedWallet
     });
+
+  } catch (err) {
+    console.error("❌ Error History:", err.message);
+    req.flash("error_msg", "Gagal memuat riwayat aktivitas.");
+    res.redirect("/dashboard");
+  } finally {
+    client.release();
+  }
 });
 
 // ================= ROUTES: TIP ===================
