@@ -18,16 +18,15 @@
 <script src="/socket.io/socket.io.js"></script>
 
 <script>
+    // 1. Dapatkan ID user yang sedang login untuk filter notifikasi
+    // Pastikan user.id disisipkan oleh server
+    const currentUserId = typeof user !== 'undefined' && user ? user.id : null; 
+    
     // Koneksi ke server WebSocket
     const socket = io(); 
-    
-    // Ambil ID user yang sedang login untuk notifikasi tip (Wajib untuk filter)
-    // Asumsi variabel 'user' disisipkan ke dalam view
-    const currentUserId = typeof user !== 'undefined' && user ? user.id : null; 
 
     // Fungsi GLOBAL untuk NOTIFIKASI REAL-TIME
     function showNewToast(type, message) {
-        // Buat HTML Toast secara dinamis
         const toastHtml = `
             <div class="toast align-items-center text-bg-${type} border-0" role="alert" aria-live="assertive" aria-atomic="true" data-bs-delay="5000">
                 <div class="d-flex">
@@ -39,16 +38,12 @@
         const container = document.getElementById('toast-container');
         
         if (container) {
-            // Injeksi HTML ke container
             container.insertAdjacentHTML('beforeend', toastHtml);
             
-            // Inisialisasi dan tampilkan toast terbaru
             const newToastEl = container.lastElementChild;
-            // Variabel 'bootstrap' harus tersedia dari bootstrap.bundle.min.js
             const toastBootstrap = new bootstrap.Toast(newToastEl);
             toastBootstrap.show();
 
-            // Hapus elemen setelah toast ditutup untuk membersihkan DOM
             newToastEl.addEventListener('hidden.bs.toast', () => {
                 newToastEl.remove();
             });
@@ -56,7 +51,7 @@
     }
 
     // --- PENDENGAR EVENT DARI SERVER (io.emit) ---
-
+    
     // A. Notifikasi Raffle Baru (Untuk SEMUA user)
     socket.on('new_raffle', (data) => {
         showNewToast('info', data.message);
@@ -69,8 +64,10 @@
     
     // C. Notifikasi Tip Poin (Hanya untuk USER TARGET)
     socket.on('user_tipped', (data) => {
-        // Cek apakah notifikasi ini ditujukan ke user yang sedang login
-        if (currentUserId && parseInt(currentUserId) === parseInt(data.userId)) {
+        // PERBAIKAN KRITIS: Membandingkan ID pengguna secara aman sebagai integer
+        const recipientId = parseInt(data.userId); 
+        
+        if (currentUserId && parseInt(currentUserId) === recipientId) {
             showNewToast('success', data.message);
         }
     });
