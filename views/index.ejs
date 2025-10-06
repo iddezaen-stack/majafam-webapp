@@ -78,7 +78,7 @@
     p {
       color: var(--text-light);
     }
-    .logo-glow {
+   .logo-glow {
   position: relative;
   display: inline-block;
   background: linear-gradient(90deg, #00e701, #16a34a);
@@ -86,22 +86,35 @@
   -webkit-text-fill-color: transparent;
   font-weight: 800;
   overflow: hidden;
+  transition: transform 0.3s ease, filter 0.3s ease;
 }
 
+/* Efek highlight hanya muncul saat hover */
 .logo-glow::after {
   content: "";
   position: absolute;
   top: 0;
-  left: -75%;
-  width: 50%;
+  left: -100%;
+  width: 60%;
   height: 100%;
-  background: linear-gradient(120deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.4) 50%, rgba(255,255,255,0) 100%);
-  animation: shine 4s infinite;
+  background: linear-gradient(
+    120deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.5) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  transition: all 0.8s ease;
 }
 
-@keyframes shine {
-  0% { left: -75%; }
-  100% { left: 125%; }
+/* Saat hover */
+.logo-glow:hover {
+  filter: drop-shadow(0 0 10px rgba(0, 231, 1, 0.4));
+  transform: scale(1.02);
+}
+
+.logo-glow:hover::after {
+  left: 120%;
+  transition: all 1s ease;
 }
 
   </style>
@@ -159,6 +172,7 @@
         Platform Loyalitas YouTube Point oleh 
         <span class="logo-glow">MAJAFAM</span>
         </h1>
+
 
 
         <p class="fs-5 text-white mb-3">
