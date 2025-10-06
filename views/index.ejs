@@ -78,6 +78,31 @@
     p {
       color: var(--text-light);
     }
+    .logo-glow {
+  background: linear-gradient(90deg, #00e701, #38bdf8);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  font-weight: 800;
+  position: relative;
+  text-shadow: 0 0 10px rgba(0, 231, 1, 0.6),
+               0 0 20px rgba(0, 231, 1, 0.4),
+               0 0 40px rgba(56, 189, 248, 0.3);
+  animation: glowPulse 3s ease-in-out infinite;
+}
+
+/* Efek animasi halus berdenyut */
+@keyframes glowPulse {
+  0%, 100% {
+    text-shadow: 0 0 10px rgba(0, 231, 1, 0.6),
+                 0 0 20px rgba(0, 231, 1, 0.4),
+                 0 0 40px rgba(56, 189, 248, 0.3);
+  }
+  50% {
+    text-shadow: 0 0 20px rgba(0, 231, 1, 0.8),
+                 0 0 40px rgba(0, 231, 1, 0.6),
+                 0 0 60px rgba(56, 189, 248, 0.5);
+  }
+}
   </style>
 </head>
 
@@ -131,7 +156,7 @@
       <% } else { %>
         <h1 class="display-5 fw-bold text-white mb-4">
         Platform Loyalitas YouTube Point oleh 
-        <span style="color: var(--accent-green);">MAJAFAM</span>
+        <span class="logo-glow">MAJAFAM</span>
         </h1>
 
         <p class="fs-5 text-white mb-3">
