@@ -29,6 +29,12 @@
                 <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
                     <% if (user) { %>
                         <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
+						<li class="nav-item">
+                            <a class="nav-link" href="/privacy-policy">Privacy Policy</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="/terms">Syarat & Ketentuan</a>
+                        </li>
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"><i class="bi bi-person-circle me-1"></i><%= user.username %></a>
                             <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
