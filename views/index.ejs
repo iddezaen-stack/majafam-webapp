@@ -29,7 +29,6 @@
                 <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
                     <% if (user) { %>
                         <li class="nav-item"><a class="nav-link" href="/dashboard">Dashboard</a></li>
-						<li class="nav-item">
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown"><i class="bi bi-person-circle me-1"></i><%= user.username %></a>
                             <ul class="dropdown-menu dropdown-menu-dark dropdown-menu-end">
@@ -38,13 +37,13 @@
                             </ul>
                         </li>
                     <% } else { %>
-						<li class="nav-item">
+                        <li class="nav-item">
                             <a class="nav-link" href="/privacy-policy">Privacy Policy</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="/terms">Syarat & Ketentuan</a>
                         </li>
-                        <li class="nav-item"><a class="nav-link" href="/login">Login</a></li>
+                                                <li class="nav-item"><a class="nav-link" href="/login">Login</a></li>
                         <li class="nav-item"><a class="nav-link" href="/register">Register</a></li>
                     <% } %>
                 </ul>
@@ -61,7 +60,7 @@
                     <a href="/dashboard" class="btn btn-action btn-green-stake btn-lg px-4">Buka Dashboard</a>
                 </div>
             <% } else { %>
-                                <h1 class="display-4 fw-bold text-primary">Platform Loyalitas YouTube Point oleh MAJAFAM</h1>
+                <h1 class="display-4 fw-bold text-primary">Platform Loyalitas YouTube Point oleh MAJAFAM</h1>
                 <p class="col-lg-8 mx-auto fs-4 text-white">Kumpulkan poin dengan menonton dan berinteraksi aktif di live stream YouTube resmi kami.</p>
                 
                                 <p class="col-lg-8 mx-auto fs-6 text-white-50">
