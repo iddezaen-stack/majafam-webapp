@@ -48,6 +48,12 @@ app.use(flash());
 app.use(passport.initialize());
 app.use(passport.session());
 
+// pastikan ini diletakkan setelah app.use(passport.session());
+app.use((req, res, next) => {
+  res.locals.user = req.user || null;
+  next();
+});
+
 // Middleware ini memastikan user sudah terautentikasi (login)
 function requireLogin(req, res, next) {
     if (req.isAuthenticated()) {
@@ -1902,18 +1908,17 @@ app.get("/admin/wallet", requireAdmin, async (req, res) => {
 
 // Term Of Reffrence//
 
-app.get("/terms", (req, res) => {
-    res.render("terms", {
-        title: "Terms of Service",
-        // Asumsi header/footer Anda memerlukan variabel user
-        user: req.user || { username: 'Guest' } 
-    });
+app.get("/privacy-policy", (req, res) => {
+  res.render("privacy-policy", {
+    title: "Privacy Policy",
+    user: req.user || { username: 'Guest', points: 0 }
+  });
 });
 
 app.get("/privacy-policy", (req, res) => {
     res.render("privacy-policy", { 
         title: "Privacy Policy",
-        user: req.user || { username: 'Guest' }
+        user: req.user || { username: 'Guest', points: 0 }
     });
 });
 
