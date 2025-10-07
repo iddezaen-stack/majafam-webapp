@@ -48,6 +48,11 @@ app.use(flash());
 app.use(passport.initialize());
 app.use(passport.session());
 
+app.use((req, res, next) => {
+  res.locals.user = req.user || null;
+  next();
+});
+
 // Middleware ini memastikan user sudah terautentikasi (login)
 function requireLogin(req, res, next) {
     if (req.isAuthenticated()) {
@@ -1900,21 +1905,36 @@ app.get("/admin/wallet", requireAdmin, async (req, res) => {
   }
 });
 
-// Term Of Reffrence//
+// ========================
+// ✅ Halaman Terms & Privacy Policy (Public Access)
+// ========================
 
 app.get("/terms", (req, res) => {
-    res.render("terms", {
-        title: "Terms of Service",
-        // Asumsi header/footer Anda memerlukan variabel user
-        user: req.user || { username: 'Guest' } 
-    });
+  const user = req.user
+    ? {
+        username: req.user.username || "Guest",
+        points: req.user.points || 0,
+      }
+    : { username: "Guest", points: 0 };
+
+  res.render("terms", {
+    title: "Terms of Service",
+    user,
+  });
 });
 
 app.get("/privacy-policy", (req, res) => {
-    res.render("privacy-policy", { 
-        title: "Privacy Policy",
-        user: req.user || { username: 'Guest' }
-    });
+  const user = req.user
+    ? {
+        username: req.user.username || "Guest",
+        points: req.user.points || 0,
+      }
+    : { username: "Guest", points: 0 };
+
+  res.render("privacy-policy", {
+    title: "Privacy Policy",
+    user,
+  });
 });
 
 // ================= START SERVER =================
